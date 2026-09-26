@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Test} from "forge-std/Test.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {FluxVault} from "../src/FluxVault.sol";
+
+/// @dev Minimal 6-decimal USDC mock for testing.
+contract MockUSDC is ERC20 {
+    constructor() ERC20("USD Coin", "USDC") {}
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+contract FluxVaultTest is Test {
+    MockUSDC internal usdc;
+    FluxVault internal vault;
+
+    // The test contract deploys the vault, so it is the owner.
+    address internal owner = address(this);
+    address internal alice = makeAddr("alice");
+    address internal bob = makeAddr("bob");
+
+    uint256 internal constant ONE_USDC = 1e6;
+
+    // Re-declared so we can assert on them with vm.expectEmit.
+    event Deposited(address user, uint256 usdcAmount, uint256 sharesIssued);
+    event Withdrawn(address user, uint256 sharesRedeemed, uint256 usdcAmount);
+
+    function setUp() public {
+        usdc = new MockUSDC();
+        vault = new FluxVault(address(usdc));
+
+        usdc.mint(alice, 1_000_000 * ONE_USDC);
+        usdc.mint(bob, 1_000_000 * ONE_USDC);
+
+        vm.prank(alice);
+        usdc.approve(address(vault), type(uint256).max);
+        vm.prank(bob);
+        usdc.approve(address(vault), type(uint256).max);
+    }
+
+    function _deposit(address user, uint256 amount) internal returns (uint256 shares) {
+        vm.prank(user);
+        shares = vault.deposit(amount);
+    }
+
+    /// deposit mints correct shares (first depositor: 1 USDC = 1 FLUX-LP)
+    function test_DepositMintsCorrectShares() public {
+        uint256 amount = 1_000 * ONE_USDC;
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(alice, amount, amount); // 1:1 for the first depositor
+
+        uint256 shares = _deposit(alice, amount);
+
+        assertEq(shares, amount, "shares == deposit for first depositor");
+        assertEq(vault.balanceOf(alice), amount, "alice FLUX-LP balance");
+        assertEq(vault.totalSupply(), amount, "total supply");
+        assertEq(vault.totalAssets(), amount, "totalAssets");
+        assertEq(usdc.balanceOf(address(vault)), amount, "vault USDC balance");
+        assertEq(vault.decimals(), 6, "FLUX-LP decimals match USDC");
+    }
+
+    /// withdraw burns correct shares and returns correct USDC
+    function test_WithdrawBurnsSharesAndReturnsUSDC() public {
+        uint256 amount = 1_000 * ONE_USDC;
+        _deposit(alice, amount);
+
+        uint256 aliceUsdcBefore = usdc.balanceOf(alice);
+        uint256 shares = vault.balanceOf(alice);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Withdrawn(alice, shares, amount);
+
+        vm.prank(alice);
+        uint256 returned = vault.withdraw(shares);
+
+        assertEq(returned, amount, "returns full USDC (no yield)");
+        assertEq(vault.balanceOf(alice), 0, "alice shares burned");
+        assertEq(vault.totalSupply(), 0, "supply back to zero");
+        assertEq(vault.totalAssets(), 0, "totalAssets back to zero");
+        assertEq(usdc.balanceOf(alice), aliceUsdcBefore + amount, "alice got USDC back");
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault emptied");
+    }
+
+    /// second depositor gets correct share ratio after NAV changes
+    function test_SecondDepositorGetsCorrectShareRatio() public {
+        uint256 aliceAmount = 1_000 * ONE_USDC;
+        _deposit(alice, aliceAmount); // 1,000 shares (1:1)
+        assertEq(vault.balanceOf(alice), aliceAmount);
+
+        // Strategy doubles NAV: move the profit in and report 2,000 USDC total.
+        usdc.mint(address(vault), 1_000 * ONE_USDC);
+        vault.updateTotalAssets(2_000 * ONE_USDC);
+
+        // NAV/share = 2,000 / 1,000 = 2 USDC. Bob deposits 1,000 -> 500 shares.
+        uint256 bobAmount = 1_000 * ONE_USDC;
+        uint256 expected = (bobAmount * vault.totalSupply()) / vault.totalAssets();
+        uint256 bobShares = _deposit(bob, bobAmount);
+
+        assertEq(bobShares, expected, "bob shares from NAV formula");
+        assertEq(bobShares, 500 * ONE_USDC, "bob gets half the shares per USDC");
+        assertEq(vault.totalSupply(), aliceAmount + bobShares, "supply updated");
+        assertEq(vault.totalAssets(), 3_000 * ONE_USDC, "totalAssets includes bob deposit");
+    }
+
+    /// updateTotalAssets correctly affects withdrawal amounts
+    function test_UpdateTotalAssetsAffectsWithdrawal() public {
+        uint256 amount = 1_000 * ONE_USDC;
+        _deposit(alice, amount); // 1,000 shares, totalAssets = 1,000 USDC
+
+        // Baseline: redeeming 1 share now would return 1 USDC.
+        // Strategy books +1,000 USDC of yield and returns the cash to the vault.
+        usdc.mint(address(vault), 1_000 * ONE_USDC);
+        vault.updateTotalAssets(2_000 * ONE_USDC);
+
+        uint256 aliceUsdcBefore = usdc.balanceOf(alice);
+        uint256 shares = vault.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 returned = vault.withdraw(shares);
+
+        // 1000e6 * 2000e6 / 1000e6 = 2000e6 — double the deposit, reflecting reported yield.
+        assertEq(returned, 2_000 * ONE_USDC, "withdrawal reflects reported yield");
+        assertEq(usdc.balanceOf(alice), aliceUsdcBefore + 2_000 * ONE_USDC, "alice received yield");
+        assertEq(vault.totalAssets(), 0, "totalAssets drained");
+    }
+
+    /// non-owner cannot call updateTotalAssets
+    function test_NonOwnerCannotUpdateTotalAssets() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vault.updateTotalAssets(999 * ONE_USDC);
+    }
+
+    /// owner can call updateTotalAssets (positive control)
+    function test_OwnerCanUpdateTotalAssets() public {
+        vault.updateTotalAssets(12_345);
+        assertEq(vault.totalAssets(), 12_345, "owner updated totalAssets");
+    }
+}
