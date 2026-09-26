@@ -107,6 +107,10 @@ export class MarketMaker {
     this.inventoryBase += fill.side === 'bid' ? fill.size : -fill.size;
     this.realizedPnlUsd += (fill.side === 'ask' ? 1 : -1) * fill.price * fill.size - fill.fee;
     this.log(`fill ${fill.side} ${fill.size} @ ${fill.price} (inventory=${this.inventoryBase.toFixed(6)})`);
+    // Write NAV to the vault immediately on every fill, not only on requote cycles.
+    // Fire-and-forget (this subscriber is sync); log RPC failures instead of crashing on
+    // an unhandled rejection, mirroring the `void this.cycle()` pattern in start().
+    void this.reportPnl().catch((err) => this.log(`reportPnl (on fill) failed: ${errMsg(err)}`));
   }
 
   private quote(mid: number): { bid: number; ask: number } {
