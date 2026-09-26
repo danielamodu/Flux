@@ -133,6 +133,7 @@ export class PerplClient {
             signature,
           }),
         );
+        console.log(`[${new Date().toISOString()}] [PerplClient] trading WS connected`);
         resolve();
       });
       ws.on('error', (err: Error) => reject(err));
@@ -146,6 +147,7 @@ export class PerplClient {
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => {
         ws.send(JSON.stringify({ mt: 5, subs: [{ stream: `order-book@${this.marketId}`, subscribe: true }] }));
+        console.log(`[${new Date().toISOString()}] [PerplClient] market-data WS connected`);
         resolve();
       });
       ws.on('error', (err: Error) => reject(err));
