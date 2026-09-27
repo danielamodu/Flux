@@ -9,7 +9,7 @@ import type { Fill, Order, VenueAdapter } from './venues/index.js';
 import { VaultClient } from './vault.js';
 
 function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  return e instanceof Error ? e.message : JSON.stringify(e);
 }
 
 export interface MarketMakerConfig {

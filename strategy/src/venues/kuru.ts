@@ -6,11 +6,13 @@
 // engine runs ethers v6. Rather than cast v6 objects into v5-shaped holes, we
 // import the *exact* ethers instance the SDK itself uses and build genuine v5
 // provider/wallet/BigNumber values here. Neither the SDK's package.json nor
-// that nested ethers declares an `exports` map, so this deep specifier resolves
-// for both tsc (moduleResolution: bundler) and Node ESM — and the types line up
-// with the SDK's own signatures with zero casts (the SDK's .d.ts `import
-// 'ethers'` resolves to the very same 5.7.1).
-import { ethers as ethersV5 } from '@kuru-labs/kuru-sdk/node_modules/ethers';
+// that nested ethers declares an `exports` map. We import its explicit CJS entry
+// (/lib/index.js): tsc (moduleResolution: bundler) resolves the adjacent
+// lib/index.d.ts so the types line up with the SDK's own signatures with zero
+// casts, and Node ESM loads the very same 5.7.1 instance the SDK's
+// `require('ethers')` caches. A bare directory specifier compiles but throws
+// ERR_UNSUPPORTED_DIR_IMPORT at runtime — Node ESM does not do directory imports.
+import { ethers as ethersV5 } from '@kuru-labs/kuru-sdk/node_modules/ethers/lib/index.js';
 import * as KuruSdk from '@kuru-labs/kuru-sdk';
 import type { LIMIT, BATCH, MarketParams } from '@kuru-labs/kuru-sdk';
 import type { Order, Fill, VenueAdapter } from './types.js';
@@ -71,8 +73,12 @@ export class KuruAdapter implements VenueAdapter {
 
   async connect(): Promise<void> {
     const signer = this.signer();
-    // 1. Load on-chain market parameters (precisions, decimals, fees).
-    this.params = await KuruSdk.ParamFetcher.getMarketParams(signer, this.config.marketAddress);
+    // 1. Load on-chain market parameters (precisions, decimals, fees). These are
+    //    reads: the SDK calls the contract with { from: AddressZero }, and ethers
+    //    v5 forbids a `from` override on a Signer-connected Contract
+    //    (UNSUPPORTED_OPERATION). Pass the Provider so the override is legal;
+    //    the Signer is only needed for the write (MarginDeposit.deposit) below.
+    this.params = await KuruSdk.ParamFetcher.getMarketParams(this.provider, this.config.marketAddress);
     const quoteDecimals = Number(this.params.quoteAssetDecimals.toString());
 
     // 2. Top up the MarginAccount quote balance if it is below the minimum. Kuru
@@ -80,7 +86,7 @@ export class KuruAdapter implements VenueAdapter {
     //    must be funded before we can rest bids. (Base = native MON funds asks;
     //    fund that separately when running fully two-sided.)
     const balance = await KuruSdk.MarginBalance.getBalance(
-      signer,
+      this.provider,
       this.config.marginAccount,
       signer.address,
       this.config.usdcAddress,
