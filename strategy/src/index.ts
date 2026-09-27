@@ -1,10 +1,10 @@
 // index.ts — Flux strategy entry point (testnet only).
 //
-// Wires the venue clients + vault together, starts the market maker, and
-// installs a graceful shutdown that cancels all resting orders on SIGINT/SIGTERM.
+// Wires the venue adapters + vault together, starts the market maker, and
+// installs a graceful shutdown that unwinds all venues on SIGINT/SIGTERM.
+// Venues are a plain list: add an adapter here and the engine quotes it too.
 import dotenv from 'dotenv';
-import { PerplClient } from './perpl.js';
-import { KuruClient } from './kuru.js';
+import { PerplAdapter, KuruAdapter, CloberAdapter, type VenueAdapter } from './venues/index.js';
 import { VaultClient } from './vault.js';
 import { MarketMaker } from './strategy.js';
 
@@ -23,9 +23,9 @@ function optionalEnv(name: string, fallback = ''): string {
 }
 
 async function main(): Promise<void> {
-  // --- Perpl (perps venue, testnet) ---
+  // --- Perpl (perps venue, testnet) — the reference/mid venue (must be first). ---
   const perplAccountId = optionalEnv('PERPL_ACCOUNT_ID');
-  const perpl = new PerplClient({
+  const perpl = new PerplAdapter({
     apiUrl: requireEnv('PERPL_API_URL'),
     wsUrl: requireEnv('PERPL_WS_URL'),
     chainId: requireEnv('PERPL_CHAIN_ID'),
@@ -36,9 +36,15 @@ async function main(): Promise<void> {
     marketId: 16, // BTC market on testnet
   });
 
-  // --- Kuru (on-chain CLOB, testnet) ---
-  const kuruMarketAddress = optionalEnv('KURU_MARKET_ADDRESS');
-  const kuru = new KuruClient(requireEnv('KURU_RPC_URL'), optionalEnv('VAULT_OWNER_PRIVATE_KEY'));
+  // --- Kuru (on-chain CLOB, testnet). A missing key surfaces in connect() so
+  //     start() just skips Kuru and keeps quoting on Perpl. ---
+  const kuru = new KuruAdapter({
+    rpcUrl: optionalEnv('KURU_RPC_URL') || requireEnv('PERPL_RPC_URL'),
+    privateKey: optionalEnv('VAULT_OWNER_PRIVATE_KEY'),
+    marketAddress: requireEnv('KURU_MARKET_ADDRESS'),
+    usdcAddress: requireEnv('KURU_USDC_ADDRESS'),
+    marginAccount: requireEnv('KURU_MARGIN_ACCOUNT'),
+  });
 
   // --- FluxVault (Phase 1 contract) ---
   const vault = new VaultClient({
@@ -47,10 +53,15 @@ async function main(): Promise<void> {
     ownerPrivateKey: requireEnv('VAULT_OWNER_PRIVATE_KEY'),
   });
 
-  const marketMaker = new MarketMaker(perpl, kuru, vault, { kuruMarketAddress, cycleIntervalMs: 8000 });
+  // CloberAdapter ready — enable when testnet redeploys (not yet on Monad).
+  void CloberAdapter;
 
-  await perpl.connect();
-  marketMaker.start();
+  // Perpl leads the list: MarketMaker takes its mid as the reference price.
+  const venues: VenueAdapter[] = [perpl, kuru];
+  const marketMaker = new MarketMaker(venues, vault, { cycleIntervalMs: 8000 });
+
+  // start() connects every venue, skips any that fail, throws if none do.
+  await marketMaker.start();
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n[${new Date().toISOString()}] received ${signal}, shutting down…`);
@@ -61,7 +72,7 @@ async function main(): Promise<void> {
       console.error(`[${new Date().toISOString()}] shutdown failed — orders may still be open:`, err);
       process.exit(1);
     } finally {
-      perpl.close();
+      for (const v of venues) v.close();
       process.exit(0);
     }
   };
