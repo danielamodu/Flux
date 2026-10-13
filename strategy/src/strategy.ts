@@ -29,8 +29,10 @@ export class MarketMaker {
   readonly SPREAD = 0.0005;
   /** Max |inventory| as a fraction of deployed capital before we stop quoting. */
   readonly MAX_INVENTORY_SKEW = 0.3;
-  /** Minimum notional per order (USD); Perpl silently drops sub-minimum rests. */
+  /** Minimum notional per order (USD); Kuru rejects sizes below its market minimum. */
   readonly MIN_ORDER_NOTIONAL_USD = 15;
+  /** At the current $1,000 strategy cap this yields the $15 minimum order. */
+  readonly ORDER_NOTIONAL_FRACTION = 0.015;
   /** Skip the cancel/requote cycle unless the mid moved at least this fraction. */
   readonly REQUOTE_MOVE_THRESHOLD = 0.001;
 
@@ -176,7 +178,7 @@ export class MarketMaker {
       // d. rest a symmetric quote on every connected venue.
       const size = await this.orderSize(mid);
       if (size <= 0) {
-        this.log('vault has insufficient available USDC for the venue minimum; no orders placed');
+        this.log('vault NAV is below the minimum order threshold; no orders placed');
         this.lastQuotedMid = 0;
         return;
       }
@@ -211,10 +213,10 @@ export class MarketMaker {
     return Math.abs(inventory * mid) / deployedUsd;
   }
 
-  /** Per-order base size: 1% of deployed capital, floored at the venue minimum. */
+  /** Per-order base size from NAV; skip if the configured share is below the venue minimum. */
   private async orderSize(mid: number): Promise<number> {
     const deployedUsd = Number(await this.vault.getTotalAssets()) / 1e6;
-    const notionalUsd = deployedUsd * 0.01;
+    const notionalUsd = deployedUsd * this.ORDER_NOTIONAL_FRACTION;
     if (notionalUsd < this.MIN_ORDER_NOTIONAL_USD) return 0;
     return mid > 0 ? notionalUsd / mid : 0;
   }
