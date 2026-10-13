@@ -18,7 +18,7 @@ Automated market making adds inventory, adverse-selection, and operational risks
 
 When the Kuru book has no two-sided mid-price, the keeper can bootstrap its first quotes from the strategy's Stork MON/USD and USDC/USD feeds. It rejects future or stale feed values, and the on-chain strategy still applies its own oracle age and price-deviation checks to every order.
 
-Quote sizing reads Kuru's live minimum order size, adds a 10% price cushion, and skips quoting if the resulting order would exceed 5% of vault NAV.
+Quote sizing reads Kuru's live minimum order size and adds a 10% price cushion. The Monad testnet runner defaults to a configurable 50% per-side NAV cap (`FLUX_MAX_ORDER_NOTIONAL_FRACTION`), which brings the current Kuru market's minimum viable NAV to about $11 instead of roughly $108 under the old 5% cap. This is testnet sizing only; it does not source the market's quote token or prove a profitable strategy.
 
 <!-- __APPEND_MARKER__ -->
 
