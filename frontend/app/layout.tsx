@@ -5,24 +5,24 @@ import { Providers } from './providers';
 export const metadata: Metadata = {
   metadataBase: new URL('https://flux.finance'),
   title: {
-    default: 'Flux — The passive liquidity layer for Monad',
+    default: 'Flux — Market making on Monad',
     template: '%s · Flux',
   },
   description:
-    'Deposit USDC. Earn yield from market making across Monad’s DEXs. Automatically.',
+    'Flux is building vault-controlled market making across Monad. Testnet prototype; trading is not live.',
   applicationName: 'Flux',
   openGraph: {
     type: 'website',
-    title: 'Flux — The passive liquidity layer for Monad',
+    title: 'Flux — Market making on Monad',
     description:
-      'Deposit USDC. Earn yield from market making across Monad’s DEXs. Automatically.',
+      'Flux is building vault-controlled market making across Monad. Testnet prototype; trading is not live.',
     siteName: 'Flux',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Flux — The passive liquidity layer for Monad',
+    title: 'Flux — Market making on Monad',
     description:
-      'Deposit USDC. Earn yield from market making across Monad’s DEXs. Automatically.',
+      'Flux is building vault-controlled market making across Monad. Testnet prototype; trading is not live.',
   },
   icons: { icon: '/favicon.ico' },
 };

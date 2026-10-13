@@ -11,9 +11,9 @@ const MANUAL = [
 ];
 
 const FLUX = [
-  { n: '1', t: 'Deposit USDC', d: 'Mint FLUX-LP shares at the current NAV.' },
-  { n: '2', t: 'Assets remain in the vault', d: 'Only USDC held by the contract counts toward share value.' },
-  { n: '3', t: 'Strategy returns are pending', d: 'Venue trading resumes after contract-controlled funding, valuation, and unwind are verified.' },
+  { n: '1', t: 'Vault custody', d: 'Flux contracts control the pooled capital and issue transferable FLUX-LP shares.' },
+  { n: '2', t: 'Trade on venues', d: 'The Kuru adapter is deployed; its first funded trading cycle is still to be proven.' },
+  { n: '3', t: 'Track real performance', d: 'Report fills, fees, PnL, and risk after a full trade and unwind cycle.' },
 ];
 
 export function BeforeAfter() {
@@ -69,7 +69,7 @@ export function BeforeAfter() {
             ))}
           </ol>
           <p className="mt-6 text-[13px] text-ink-subtle">
-            Deposits are enabled on the custody-based vault; external venue strategies remain paused.
+        Testnet prototype · deposits remain paused until the Kuru cycle is verified.
           </p>
         </div>
       </div>

@@ -57,14 +57,16 @@ function toActivity(log: any): VaultActivity | null {
   if (blockNumber == null || logIndex == null || !txHash) return null;
   const args = log.args ?? {};
   if (log.eventName === 'Deposited') {
-    if (!args.user || args.usdcAmount === undefined || args.sharesIssued === undefined)
+    const assets = args.assets ?? args.usdcAmount;
+    const shares = args.shares ?? args.sharesIssued;
+    if (!args.user || assets === undefined || shares === undefined)
       return null;
     return {
       id: keyOf(blockNumber, logIndex),
       kind: 'deposit',
       user: args.user,
-      usdc: args.usdcAmount,
-      shares: args.sharesIssued,
+      usdc: assets,
+      shares,
       blockNumber,
       logIndex,
       txHash,
@@ -72,14 +74,16 @@ function toActivity(log: any): VaultActivity | null {
     };
   }
   if (log.eventName === 'Withdrawn') {
-    if (!args.user || args.sharesRedeemed === undefined || args.usdcAmount === undefined)
+    const assets = args.assets ?? args.usdcAmount;
+    const shares = args.shares ?? args.sharesRedeemed;
+    if (!args.user || shares === undefined || assets === undefined)
       return null;
     return {
       id: keyOf(blockNumber, logIndex),
       kind: 'withdraw',
       user: args.user,
-      usdc: args.usdcAmount,
-      shares: args.sharesRedeemed,
+      usdc: assets,
+      shares,
       blockNumber,
       logIndex,
       txHash,

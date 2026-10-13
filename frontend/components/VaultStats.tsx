@@ -37,7 +37,7 @@ export function VaultStats() {
         <div>
           <p className="eyebrow">Live · updates every 10s</p>
           <h2 className="mt-3 font-display text-[clamp(2rem,1.4rem+2vw,2.75rem)] leading-tight tracking-[-0.025em] text-ink-strong">
-            Legacy deployment snapshot
+            Strategy vault snapshot
           </h2>
         </div>
       </div>

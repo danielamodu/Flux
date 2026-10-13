@@ -3,7 +3,8 @@
 // the right rail. Yield metrics stay out until backed by durable performance data.
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { formatUsd } from '@/lib/format';
+import { DEPOSITS_ENABLED, EXPLORER_URL, VAULT_ADDRESS } from '@/lib/contracts';
+import { formatUsd, truncateAddress } from '@/lib/format';
 import { useVaultData } from '@/lib/vault-data';
 import { PositionCard } from './PositionCard';
 
@@ -12,7 +13,7 @@ function VaultSnapshot() {
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between">
-        <span className="eyebrow">Legacy contract snapshot</span>
+        <span className="eyebrow">Strategy vault snapshot</span>
         <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-subtle">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
@@ -35,7 +36,17 @@ function VaultSnapshot() {
           </dd>
         </div>
       </dl>
-      <p className="mt-4 text-sm text-ink-subtle">This legacy contract’s NAV is owner-settable; verify its USDC balance before relying on the figures.</p>
+      <p className="mt-4 text-sm text-ink-subtle">
+        NAV is read from the deployed vault and its registered strategy. No funds are allocated yet.
+      </p>
+      <a
+        href={`${EXPLORER_URL}/address/${VAULT_ADDRESS}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-3 inline-block font-mono text-xs text-primary hover:underline"
+      >
+        {truncateAddress(VAULT_ADDRESS)} ↗
+      </a>
     </div>
   );
 }
@@ -46,14 +57,19 @@ export function Hero() {
     <section className="mx-auto max-w-container px-4 pb-16 pt-14 sm:px-8 sm:pt-20">
       <div className="reveal grid items-start gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
         <div>
-          <p className="eyebrow">Autonomous market making · Monad testnet</p>
+          <p className="eyebrow">Vault-controlled market making · Monad testnet</p>
           <h1 className="mt-4 font-display text-[clamp(2.75rem,1.6rem+3.8vw,4.5rem)] leading-[1.02] tracking-[-0.03em] text-ink-strong">
-            The passive liquidity layer for Monad
+            Earn from market activity across Monad
           </h1>
           <p className="mt-5 max-w-measure text-lg leading-relaxed text-ink">
-            A Monad vault prototype with transparent, on-chain share accounting.
-            The custody-based vault is live, with share accounting backed by USDC held on-chain.
+            Flux is building a vault that makes markets on Monad protocols. The Kuru strategy is deployed,
+            but its trade and unwind cycle is not verified and no user funds are allocated.
           </p>
+          {!DEPOSITS_ENABLED && (
+            <p className="mt-4 inline-flex rounded-full border border-hairline bg-surface-2 px-3 py-1.5 text-sm text-ink-subtle">
+              Testnet build · deposits paused while Kuru is validated
+            </p>
+          )}
           {!isConnected && (
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <ConnectButton.Custom>

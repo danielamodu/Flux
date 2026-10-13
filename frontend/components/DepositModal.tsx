@@ -19,6 +19,7 @@ import {
   VAULT_ABI,
   VAULT_ADDRESS,
   DEPOSITS_ENABLED,
+  DEPOSITS_PAUSE_REASON,
 } from '@/lib/contracts';
 import { formatShares, formatUsd } from '@/lib/format';
 import { useVaultData } from '@/lib/vault-data';
@@ -175,12 +176,12 @@ export function DepositModal({
         disabled={!DEPOSITS_ENABLED || amountRaw === null || overBalance || busy}
         aria-busy={busy}
       >
-        {DEPOSITS_ENABLED ? label : 'Deposits paused for this legacy vault'}
+        {DEPOSITS_ENABLED ? label : 'Deposits paused'}
       </button>
 
       {!DEPOSITS_ENABLED && (
         <p className="mt-3 text-sm text-ink-subtle">
-          This app points to the legacy contract. The custody-based vault source has not yet been redeployed.
+          {DEPOSITS_PAUSE_REASON}
         </p>
       )}
 

@@ -4,7 +4,7 @@
 // deposit/withdraw modal state and refetches balances when a tx confirms.
 import { useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
-import { DEPOSITS_ENABLED, VAULT_ABI, VAULT_ADDRESS } from '@/lib/contracts';
+import { DEPOSITS_ENABLED, DEPOSITS_PAUSE_REASON, VAULT_ABI, VAULT_ADDRESS } from '@/lib/contracts';
 import { formatShares, formatUsd } from '@/lib/format';
 import { useVaultData } from '@/lib/vault-data';
 import { useMounted } from '@/lib/useMounted';
@@ -71,7 +71,9 @@ export function PositionCard() {
       </div>
       {mounted && !hasStake && (
         <p className="mt-3 text-[13px] text-ink-subtle">
-          New deposits go to the custody-based testnet vault. Venue strategies remain paused.
+          {DEPOSITS_ENABLED
+            ? 'This cash-only testnet vault does not include venue strategy positions.'
+            : DEPOSITS_PAUSE_REASON}
         </p>
       )}
 

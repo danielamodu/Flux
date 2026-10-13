@@ -18,8 +18,7 @@ function Footer() {
         <div className="max-w-xs">
           <FluxMark />
           <p className="mt-4 text-[14px] text-ink-subtle">
-            The custody-based Monad testnet vault is live. Strategy yield is not
-            currently reported; vault assets are USDC held by the contract.
+            Flux is a Monad testnet build. The Kuru adapter is deployed, but no trading revenue is verified and deposits remain paused.
           </p>
         </div>
         <nav className="flex gap-16" aria-label="Footer">
