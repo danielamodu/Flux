@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   if (process.exitCode === 1) {
     console.error('Fix the reported address mismatch before deploying or allocating funds.');
   } else {
-    console.log('Market, vault asset, and Stork feed checks passed. A fresh empty strategy vault is ready for deployment when explicitly requested.');
+    console.log('Market, strategy-vault asset, and Stork feed checks passed. This read-only preflight does not verify liquidity or a funded trading cycle.');
   }
   await provider.destroy();
 }
