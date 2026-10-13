@@ -24,6 +24,8 @@ export interface Fill {
 /** Uniform lifecycle + trading surface implemented by every venue. */
 export interface VenueAdapter {
   readonly name: string;
+  /** Canonical BASE/QUOTE pair; the engine refuses to cross-quote unlike assets. */
+  readonly pair: string;
   connect(): Promise<void>;
   close(): void;
   getMidPrice(): Promise<number>;
@@ -31,4 +33,6 @@ export interface VenueAdapter {
   cancelAllOrders(): Promise<void>;
   getFills(): Promise<Fill[]>;
   onFill(callback: (fill: Fill) => void): void;
+  /** Optional live base inventory in human-readable base-token units. */
+  getBaseInventory?(): Promise<number>;
 }

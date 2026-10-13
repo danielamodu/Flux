@@ -5,6 +5,8 @@
 export type { Order, Fill, VenueAdapter } from './types.js';
 export { PerplAdapter } from './perpl.js';
 export { KuruAdapter } from './kuru.js';
+export { KuruVaultAdapter } from './kuru-vault.js';
+export type { KuruVaultConfig } from './kuru-vault.js';
 export { CloberAdapter } from './clober.js';
 
 import { PerplAdapter } from './perpl.js';

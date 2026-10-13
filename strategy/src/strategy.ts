@@ -2,8 +2,9 @@
 //
 // Each cycle: read the mid on the reference venue, gate on how far it moved,
 // cancel resting orders on every connected venue, check the inventory-skew
-// guard, rest a symmetric bid/ask on every connected venue, then report
-// realized PnL back to the FluxVault. Venues are plain VenueAdapters, so
+// guard, and rest a symmetric bid/ask on every connected venue. Venue balances
+// are not controlled or valued by FluxVault and are never reported as vault NAV.
+// Venues are plain VenueAdapters, so
 // "many exchanges" is a list you pass in — not code you change here.
 import type { Fill, Order, VenueAdapter } from './venues/index.js';
 import { VaultClient } from './vault.js';
@@ -35,11 +36,9 @@ export class MarketMaker {
 
   private readonly cycleIntervalMs: number;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private cycleInFlight: Promise<void> | undefined;
   private running = false;
   private inventoryBase = 0; // net base-asset position accumulated from fills
-  private realizedPnlUsd = 0; // cumulative realized PnL in USDC terms
-  private lastReportedPnlUsd = 0; // realized PnL already written to the vault
-  private reportPnlInFlight = false; // serializes NAV writes (fill vs cycle)
   private lastQuotedMid = 0; // mid at which resting orders were last placed
   private state: VaultState = VaultState.AVAILABLE; // gates withdrawal
   /** Venues that connected successfully; the first is the reference (mid) venue. */
@@ -60,8 +59,19 @@ export class MarketMaker {
    */
   async start(): Promise<void> {
     if (this.running) return;
+    const reference = this.venues[0];
+    if (!reference) throw new Error('no venues configured — cannot start market maker');
+    const compatible = this.venues.filter((venue) => venue.pair === reference.pair);
+    if (compatible.length !== this.venues.length) {
+      const incompatible = this.venues
+        .filter((venue) => venue.pair !== reference.pair)
+        .map((venue) => `${venue.name} (${venue.pair})`);
+      throw new Error(
+        `venue pair mismatch: reference ${reference.pair}; incompatible: ${incompatible.join(', ')}`,
+      );
+    }
     const connected: VenueAdapter[] = [];
-    for (const venue of this.venues) {
+    for (const venue of compatible) {
       try {
         await venue.connect();
         venue.onFill((fill) => this.onFill(fill));
@@ -72,13 +82,24 @@ export class MarketMaker {
       }
     }
     if (connected.length === 0) throw new Error('no venues connected — cannot start market maker');
+    const referenceMid = await connected[0].getMidPrice();
+    if (!Number.isFinite(referenceMid) || referenceMid <= 0) {
+      await Promise.allSettled(connected.map((venue) => venue.cancelAllOrders()));
+      throw new Error(`reference venue returned invalid or stale price: ${referenceMid}`);
+    }
     this.connected = connected;
     this.running = true;
     this.state = VaultState.DEPLOYED;
     this.log(`starting (state=DEPLOYED, venues=[${connected.map((v) => v.name).join(', ')}])`);
-    this.timer = setInterval(() => {
-      void this.cycle();
-    }, this.cycleIntervalMs);
+    this.timer = setInterval(() => this.runCycleOnce(), this.cycleIntervalMs);
+  }
+
+  /** Prevent overlapping cycles from placing stale duplicate order sets. */
+  private runCycleOnce(): void {
+    if (!this.running || this.cycleInFlight) return;
+    this.cycleInFlight = this.cycle().finally(() => {
+      this.cycleInFlight = undefined;
+    });
   }
 
   /** Cancel every resting order on every venue and mark capital withdrawable. */
@@ -91,6 +112,8 @@ export class MarketMaker {
     this.state = VaultState.UNWINDING;
     this.log('unwinding — cancelling all resting orders');
     try {
+      // Wait for a placement already in progress, then cancel its resulting orders.
+      await this.cycleInFlight;
       await Promise.all(this.connected.map((v) => v.cancelAllOrders()));
     } catch (err) {
       this.log(`unwind failed — staying UNWINDING (withdrawal blocked): ${errMsg(err)}`);
@@ -106,12 +129,10 @@ export class MarketMaker {
     return this.state === VaultState.AVAILABLE;
   }
 
-  /** Fold a fill into shared inventory + realized PnL, then push NAV to the vault. */
+  /** Fold a fill into the bot's operational inventory view only. */
   private onFill(fill: Fill): void {
     this.inventoryBase += fill.side === 'bid' ? fill.size : -fill.size;
-    this.realizedPnlUsd += (fill.side === 'ask' ? 1 : -1) * fill.price * fill.size - fill.fee;
     this.log(`fill ${fill.side} ${fill.size} @ ${fill.price} (inventory=${this.inventoryBase.toFixed(6)})`);
-    void this.reportPnl().catch((err) => this.log(`reportPnl (on fill) failed: ${errMsg(err)}`));
   }
 
   private quote(mid: number): { bid: number; ask: number } {
@@ -121,8 +142,10 @@ export class MarketMaker {
   /** One market-making cycle across all connected venues. */
   private async cycle(): Promise<void> {
     try {
+      if (this.state !== VaultState.DEPLOYED) return;
       // a. reference mid from the primary (first connected) venue — Perpl in prod.
       const mid = await this.connected[0].getMidPrice();
+      if (!Number.isFinite(mid) || mid <= 0) throw new Error(`invalid reference mid price: ${mid}`);
       this.log(`mid (${this.connected[0].name})=${mid}`);
 
       // a'. requote gate — hold resting orders unless the mid moved enough.
@@ -137,6 +160,8 @@ export class MarketMaker {
       // b. clear resting orders on every venue before requoting.
       await Promise.all(this.connected.map((v) => v.cancelAllOrders()));
 
+      if (this.state !== VaultState.DEPLOYED) return;
+
       // c. inventory-skew guard.
       const skew = await this.inventorySkew(mid);
       if (skew > this.MAX_INVENTORY_SKEW) {
@@ -146,60 +171,52 @@ export class MarketMaker {
       }
 
       // c'. bail if we've begun unwinding since this cycle started.
-      if (this.state !== VaultState.DEPLOYED) return;
+      if (!this.running || this.state !== VaultState.DEPLOYED) return;
 
       // d. rest a symmetric quote on every connected venue.
       const size = await this.orderSize(mid);
+      if (size <= 0) {
+        this.log('vault has insufficient available USDC for the venue minimum; no orders placed');
+        this.lastQuotedMid = 0;
+        return;
+      }
       const { bid, ask } = this.quote(mid);
       const bidOrder: Order = { side: 'bid', price: bid, size };
       const askOrder: Order = { side: 'ask', price: ask, size };
       await Promise.all(this.connected.map((v) => v.placeOrders(bidOrder, askOrder)));
       this.lastQuotedMid = mid;
       this.log(`quoted size=${size.toFixed(6)} bid=${bid.toFixed(2)} ask=${ask.toFixed(2)} on [${this.connected.map((v) => v.name).join(', ')}]`);
-      // e. report PnL to the vault.
-      await this.reportPnl();
     } catch (err) {
       this.log(`cycle error: ${errMsg(err)}`);
+      try {
+        await Promise.all(this.connected.map((venue) => venue.cancelAllOrders()));
+        this.lastQuotedMid = 0;
+      } catch (cancelErr) {
+        this.log(`fail-safe cancellation failed: ${errMsg(cancelErr)}`);
+        this.running = false;
+        this.state = VaultState.UNWINDING;
+        if (this.timer) clearInterval(this.timer);
+        this.timer = undefined;
+      }
     }
   }
 
   /** |inventory notional| as a fraction of deployed capital (0 if none deployed). */
   private async inventorySkew(mid: number): Promise<number> {
-    const deployedUsd = Number(await this.vault.getAvailableLiquidity()) / 1e6;
+    const deployedUsd = Number(await this.vault.getTotalAssets()) / 1e6;
     if (deployedUsd <= 0) return 0;
-    return Math.abs(this.inventoryBase * mid) / deployedUsd;
+    const inventory = this.connected.length === 1 && this.connected[0].getBaseInventory
+      ? await this.connected[0].getBaseInventory()
+      : this.inventoryBase;
+    return Math.abs(inventory * mid) / deployedUsd;
   }
 
   /** Per-order base size: 1% of deployed capital, floored at the venue minimum. */
   private async orderSize(mid: number): Promise<number> {
-    const deployedUsd = Number(await this.vault.getAvailableLiquidity()) / 1e6;
-    const notionalUsd = Math.max(deployedUsd * 0.01, this.MIN_ORDER_NOTIONAL_USD);
+    const deployedUsd = Number(await this.vault.getTotalAssets()) / 1e6;
+    const notionalUsd = deployedUsd * 0.01;
+    if (notionalUsd < this.MIN_ORDER_NOTIONAL_USD) return 0;
     return mid > 0 ? notionalUsd / mid : 0;
-  }
-
-  /**
-   * Write realized PnL to the vault as an absolute NAV. Serialized via
-   * reportPnlInFlight so a fill and a cycle can't race two updateTotalAssets
-   * calls off the same on-chain read. Clamped at 0 — NAV never goes negative.
-   */
-  private async reportPnl(): Promise<void> {
-    if (this.reportPnlInFlight) {
-      this.log('reportPnl skipped (in flight)');
-      return;
-    }
-    this.reportPnlInFlight = true;
-    try {
-      const currentOnChain = await this.vault.getTotalAssets();
-      const deltaUsd = this.realizedPnlUsd - this.lastReportedPnlUsd;
-      const deltaUnits = BigInt(Math.round(deltaUsd * 1e6));
-      const newTotal = currentOnChain + deltaUnits;
-      const clamped = newTotal < 0n ? 0n : newTotal;
-      await this.vault.updateTotalAssets(clamped);
-      this.lastReportedPnlUsd = this.realizedPnlUsd;
-      this.log(`reported totalAssets=${clamped.toString()} (delta ${deltaUsd.toFixed(6)} USDC)`);
-    } finally {
-      this.reportPnlInFlight = false;
-    }
   }
 
   private log(message: string): void {

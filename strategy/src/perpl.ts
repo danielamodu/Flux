@@ -63,6 +63,8 @@ export class PerplClient {
   private wsMarket: WebSocket | undefined;
   private bids = new Map<number, number>(); // scaled price -> scaled size (live L2 book)
   private asks = new Map<number, number>();
+  private lastBookUpdateAt = 0;
+  private readonly maxBookAgeMs = 10_000;
   private orderFills = new Map<number, { fs: number; fee: number }>(); // oid -> last-seen cumulative fill
   private accountId: number | undefined; // resolved from GET /v1/trading/wallet
   private rqCounter: number | undefined; // seeded from Account.lfr, then incremented locally
@@ -112,6 +114,9 @@ export class PerplClient {
   }
   /** Open both Perpl sockets: trading (sign-in → order/fill updates) + market-data (book). */
   async connect(): Promise<void> {
+    if (!this.config.apiKey || !this.config.apiSecret) {
+      throw new Error('Perpl trading requires both API_KEY and API_KEY_SECRET; empty credentials are rejected');
+    }
     await this.getMarketMeta(); // preload decimals so fills/book unscale correctly
     await Promise.all([this.connectTrading(), this.connectMarketData()]);
   }
@@ -153,6 +158,12 @@ export class PerplClient {
       ws.on('error', (err: Error) => reject(err));
     });
     ws.on('message', (data: WebSocket.RawData) => this.handleMessage(data));
+    ws.on('close', () => {
+      if (this.wsMarket !== ws) return;
+      this.bids.clear();
+      this.asks.clear();
+      this.lastBookUpdateAt = 0;
+    });
   }
 
   /** Sign the WS canonical: chainId \n "trading-ws-signin" \n timestamp \n nonce (4 fields). */
@@ -247,11 +258,12 @@ export class PerplClient {
     };
     apply(msg.bid, this.bids);
     apply(msg.ask, this.asks);
+    this.lastBookUpdateAt = Date.now();
   }
 
   /** Mid price from the live WS book, falling back to the public context snapshot. */
   async getMidPrice(): Promise<number> {
-    if (this.bids.size > 0 && this.asks.size > 0) {
+    if (this.bids.size > 0 && this.asks.size > 0 && Date.now() - this.lastBookUpdateAt <= this.maxBookAgeMs) {
       const scale = 10 ** (this.marketMeta?.priceDecimals ?? 0);
       const bestBid = Math.max(...this.bids.keys());
       const bestAsk = Math.min(...this.asks.keys());
@@ -259,18 +271,27 @@ export class PerplClient {
     }
     // Public snapshot: /api/v1/pub/context carries each market's state with mid/bid/ask
     // as fixed-point integers scaled by config.price_decimals. No auth required.
-    const res = await fetch(`${this.config.apiUrl}/v1/pub/context`, { headers: { accept: 'application/json' } });
+    const res = await fetch(`${this.config.apiUrl}/v1/pub/context`, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) throw new Error(`Perpl pub/context failed: ${res.status}`);
     const data = (await res.json()) as { markets?: Record<string, any>[] };
     const market = (data.markets ?? []).find((m) => Number(m?.id) === this.marketId);
     if (!market) throw new Error(`Perpl: market ${this.marketId} not found in context`);
     const scale = 10 ** Number(market?.config?.price_decimals ?? 0);
     const mid = Number(market?.state?.mid);
-    if (Number.isFinite(mid) && mid > 0) return mid / scale;
+    const observedAt = Number(market?.state?.at?.t ?? 0);
+    if (Number.isFinite(mid) && mid > 0 && observedAt > 0 && Date.now() - observedAt <= this.maxBookAgeMs) {
+      return mid / scale;
+    }
     const bid = Number(market?.state?.bid);
     const ask = Number(market?.state?.ask);
-    if (Number.isFinite(bid) && Number.isFinite(ask)) return (bid + ask) / (2 * scale);
-    throw new Error('Perpl: no mid price available in context');
+    if (
+      Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask >= bid &&
+      observedAt > 0 && Date.now() - observedAt <= this.maxBookAgeMs
+    ) return (bid + ask) / (2 * scale);
+    throw new Error('Perpl: no fresh market price available');
   }
 
   /**

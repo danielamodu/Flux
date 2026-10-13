@@ -26,10 +26,10 @@ export interface KuruConfig {
   usdcAddress: string;
   /** MarginAccount contract that holds maker balances. */
   marginAccount: string;
+  /** Canonical market pair; must match the reference venue before quoting. */
+  pair?: string;
   /** Keep at least this much quote (human USDC) in the MarginAccount. */
   minMarginUsdc?: number;
-  /** Deposit this much (human USDC) when below the minimum. */
-  marginDepositUsdc?: number;
 }
 
 // Human-readable fragments for the two OrderBook events we consume; the types
@@ -41,12 +41,12 @@ const ORDERBOOK_EVENTS_ABI: string[] = [
 
 export class KuruAdapter implements VenueAdapter {
   readonly name = 'kuru';
+  readonly pair: string;
 
   private readonly config: KuruConfig;
   private readonly provider: ethersV5.providers.JsonRpcProvider;
   private readonly wallet: ethersV5.Wallet | undefined;
   private readonly minMarginUsdc: number;
-  private readonly marginDepositUsdc: number;
 
   private params: MarketParams | undefined;
   private market: ethersV5.Contract | undefined; // Trade/OrderCreated event source
@@ -56,13 +56,13 @@ export class KuruAdapter implements VenueAdapter {
 
   constructor(config: KuruConfig) {
     this.config = config;
+    this.pair = config.pair ?? 'MON/USDC';
     this.provider = new ethersV5.providers.JsonRpcProvider(config.rpcUrl);
     // Construct the signer lazily-safely: an absent key must not crash the whole
     // engine at startup — connect() surfaces it so MarketMaker can skip Kuru and
     // keep quoting on Perpl. Reads (getMidPrice) work provider-only.
     this.wallet = config.privateKey ? new ethersV5.Wallet(config.privateKey, this.provider) : undefined;
     this.minMarginUsdc = config.minMarginUsdc ?? 50;
-    this.marginDepositUsdc = config.marginDepositUsdc ?? 100;
   }
 
   /** The signer, or a clear error when no key was provided. */
@@ -81,10 +81,9 @@ export class KuruAdapter implements VenueAdapter {
     this.params = await KuruSdk.ParamFetcher.getMarketParams(this.provider, this.config.marketAddress);
     const quoteDecimals = Number(this.params.quoteAssetDecimals.toString());
 
-    // 2. Top up the MarginAccount quote balance if it is below the minimum. Kuru
+    // 2. Require existing MarginAccount funds. Kuru
     //    maker orders consume MarginAccount balances, so the quote (USDC) side
-    //    must be funded before we can rest bids. (Base = native MON funds asks;
-    //    fund that separately when running fully two-sided.)
+    //    must be funded before we can rest bids. This adapter never moves funds.
     const balance = await KuruSdk.MarginBalance.getBalance(
       this.provider,
       this.config.marginAccount,
@@ -93,24 +92,12 @@ export class KuruAdapter implements VenueAdapter {
     );
     const minUnits = ethersV5.utils.parseUnits(this.minMarginUsdc.toString(), quoteDecimals);
     if (balance.lt(minUnits)) {
-      this.log(
-        `margin USDC ${ethersV5.utils.formatUnits(balance, quoteDecimals)} < min ${this.minMarginUsdc} ` +
-          `— depositing ${this.marginDepositUsdc} USDC`,
-      );
-      await KuruSdk.MarginDeposit.deposit(
-        signer,
-        this.config.marginAccount,
-        signer.address,
-        this.config.usdcAddress,
-        this.marginDepositUsdc.toString(),
-        quoteDecimals,
-        true, // approve the MarginAccount to pull USDC
-      );
-    } else {
-      this.log(
-        `margin USDC ${ethersV5.utils.formatUnits(balance, quoteDecimals)} >= min ${this.minMarginUsdc} — no deposit`,
+      throw new Error(
+        `Kuru MarginAccount has ${ethersV5.utils.formatUnits(balance, quoteDecimals)} USDC; ` +
+          `${this.minMarginUsdc} required. Automatic wallet funding is disabled.`,
       );
     }
+    this.log(`connected with margin USDC ${ethersV5.utils.formatUnits(balance, quoteDecimals)}`);
 
     // 3. Stream Trade events for our maker address to surface fills.
     this.subscribeFills(signer.address);

@@ -18,10 +18,12 @@ function toVenueFill(f: PerplFill): Fill {
 
 export class PerplAdapter implements VenueAdapter {
   readonly name = 'perpl';
+  readonly pair: string;
   private readonly client: PerplClient;
 
   constructor(config: PerplConfig) {
     this.client = new PerplClient(config);
+    this.pair = config.marketId === undefined || config.marketId === 16 ? 'BTC/USDC' : `PERPL-${config.marketId}/USDC`;
   }
 
   async connect(): Promise<void> {

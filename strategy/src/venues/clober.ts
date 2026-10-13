@@ -19,6 +19,7 @@ const NOT_CONNECTED = 'Clober adapter not connected';
 
 export class CloberAdapter implements VenueAdapter {
   readonly name = 'clober';
+  readonly pair = 'UNCONFIGURED';
   // Load-bearing reference: keeps the @clober/v2-sdk dependency real and wired
   // even though connect() short-circuits before any SDK call is made.
   private readonly sdk = CloberSdk;
