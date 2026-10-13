@@ -2,12 +2,12 @@
 
 const LEGACY_VAULT_ADDRESS = '0x87D7e8ADc960B554483d4CEed5305B15b1D3B600' as const;
 const CASH_VAULT_ADDRESS = '0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879' as const;
-const STRATEGY_VAULT_ADDRESS = '0x094e9F951533b848EF8A5D304368E3991f318f6B' as const;
+const STRATEGY_VAULT_ADDRESS = '0x67f5787E44A42BBb12fdA9A3a9142Bd6cEEffb42' as const;
 const configuredVault = process.env.NEXT_PUBLIC_VAULT_ADDRESS?.trim();
 const isConfiguredVault = /^0x[0-9a-fA-F]{40}$/.test(configuredVault ?? '');
 export const VAULT_ADDRESS = (isConfiguredVault ? configuredVault : STRATEGY_VAULT_ADDRESS) as `0x${string}`;
-export const STRATEGY_ADDRESS = '0x0bF17399702a7d41d9FB2913df28c534c1C2c7D7' as const;
-const STRATEGY_QUOTE_TOKEN = '0x3bA3d39AFcf8bb994f7964B3e0171Ea2Ba361570' as const;
+export const STRATEGY_ADDRESS = '0x1AC5d862e48001b139070F9A64F9dd164B6A6d1B' as const;
+const STRATEGY_QUOTE_TOKEN = '0x534b2f3A21130d7a60830c2Df862319e593943A3' as const;
 const CASH_VAULT_TOKEN = '0xdf5b718d8fcc173335185a2a1513ee8151e3c027' as const;
 const configuredAsset = process.env.NEXT_PUBLIC_VAULT_ASSET_ADDRESS?.trim();
 const isConfiguredAsset = /^0x[0-9a-fA-F]{40}$/.test(configuredAsset ?? '');
