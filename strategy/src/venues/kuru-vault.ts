@@ -254,7 +254,8 @@ export class KuruVaultAdapter implements VenueAdapter {
     const topics = ['OrderCreated', 'OrdersCanceled', 'Trade'].map((name) => iface.getEventTopic(name));
     const strategy = this.config.strategyAddress.toLowerCase();
     const live = new Map<string, ethersV5.BigNumber>();
-    const chunkSize = 10_000;
+    // Monad's public testnet RPC currently limits eth_getLogs to 100 blocks per call.
+    const chunkSize = 100;
     for (let fromBlock = startBlock; fromBlock <= latest; fromBlock += chunkSize) {
       const toBlock = Math.min(fromBlock + chunkSize - 1, latest);
       const logs = await this.provider.getLogs({
