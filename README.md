@@ -18,6 +18,8 @@ Automated market making adds inventory, adverse-selection, and operational risks
 
 When the Kuru book has no two-sided mid-price, the keeper can bootstrap its first quotes from the strategy's Stork MON/USD and USDC/USD feeds. It rejects future or stale feed values, and the on-chain strategy still applies its own oracle age and price-deviation checks to every order.
 
+Quote sizing reads Kuru's live minimum order size, adds a 10% price cushion, and skips quoting if the resulting order would exceed 5% of vault NAV.
+
 <!-- __APPEND_MARKER__ -->
 
 ## Live deployment
