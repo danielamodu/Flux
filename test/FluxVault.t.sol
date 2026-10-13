@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {FluxVault} from "../src/FluxVault.sol";
 
 /// @dev Minimal 6-decimal USDC mock for testing.
@@ -17,14 +16,16 @@ contract MockUSDC is ERC20 {
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
+
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
 }
 
 contract FluxVaultTest is Test {
     MockUSDC internal usdc;
     FluxVault internal vault;
 
-    // The test contract deploys the vault, so it is the owner.
-    address internal owner = address(this);
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
@@ -91,15 +92,14 @@ contract FluxVaultTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 0, "vault emptied");
     }
 
-    /// second depositor gets correct share ratio after NAV changes
+    /// Share price follows only USDC held by the vault; donations are real assets.
     function test_SecondDepositorGetsCorrectShareRatio() public {
         uint256 aliceAmount = 1_000 * ONE_USDC;
         _deposit(alice, aliceAmount); // 1,000 shares (1:1)
         assertEq(vault.balanceOf(alice), aliceAmount);
 
-        // Strategy doubles NAV: move the profit in and report 2,000 USDC total.
+        // Settled proceeds returned to the vault increase redeemable NAV.
         usdc.mint(address(vault), 1_000 * ONE_USDC);
-        vault.updateTotalAssets(2_000 * ONE_USDC);
 
         // NAV/share = 2,000 / 1,000 = 2 USDC. Bob deposits 1,000 -> 500 shares.
         uint256 bobAmount = 1_000 * ONE_USDC;
@@ -112,15 +112,14 @@ contract FluxVaultTest is Test {
         assertEq(vault.totalAssets(), 3_000 * ONE_USDC, "totalAssets includes bob deposit");
     }
 
-    /// updateTotalAssets correctly affects withdrawal amounts
-    function test_UpdateTotalAssetsAffectsWithdrawal() public {
+    /// Settled proceeds held in the vault are redeemable by shareholders.
+    function test_SettledProceedsAffectWithdrawal() public {
         uint256 amount = 1_000 * ONE_USDC;
         _deposit(alice, amount); // 1,000 shares, totalAssets = 1,000 USDC
 
         // Baseline: redeeming 1 share now would return 1 USDC.
         // Strategy books +1,000 USDC of yield and returns the cash to the vault.
         usdc.mint(address(vault), 1_000 * ONE_USDC);
-        vault.updateTotalAssets(2_000 * ONE_USDC);
 
         uint256 aliceUsdcBefore = usdc.balanceOf(alice);
         uint256 shares = vault.balanceOf(alice);
@@ -128,22 +127,42 @@ contract FluxVaultTest is Test {
         vm.prank(alice);
         uint256 returned = vault.withdraw(shares);
 
-        // 1000e6 * 2000e6 / 1000e6 = 2000e6 — double the deposit, reflecting reported yield.
+        // Only actual USDC held by the vault can be withdrawn.
         assertEq(returned, 2_000 * ONE_USDC, "withdrawal reflects reported yield");
         assertEq(usdc.balanceOf(alice), aliceUsdcBefore + 2_000 * ONE_USDC, "alice received yield");
         assertEq(vault.totalAssets(), 0, "totalAssets drained");
     }
 
-    /// non-owner cannot call updateTotalAssets
-    function test_NonOwnerCannotUpdateTotalAssets() public {
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        vault.updateTotalAssets(999 * ONE_USDC);
+    function test_PreseededDonationCannotBeCapturedByFirstDepositor() public {
+        uint256 donation = 100 * ONE_USDC;
+        uint256 deposit = 100 * ONE_USDC;
+        usdc.mint(address(vault), donation);
+        uint256 shares = _deposit(alice, deposit);
+        assertEq(shares, deposit);
+        assertEq(vault.balanceOf(alice), deposit);
+        assertEq(vault.balanceOf(address(0x000000000000000000000000000000000000dEaD)), donation);
+        assertEq(vault.totalAssets(), donation + deposit);
     }
 
-    /// owner can call updateTotalAssets (positive control)
-    function test_OwnerCanUpdateTotalAssets() public {
-        vault.updateTotalAssets(12_345);
-        assertEq(vault.totalAssets(), 12_345, "owner updated totalAssets");
+    function test_DepositRevertsWhenVaultInsolventButSharesRemain() public {
+        _deposit(alice, 10 * ONE_USDC);
+        usdc.burn(address(vault), 10 * ONE_USDC);
+        vm.prank(bob);
+        vm.expectRevert(FluxVault.InsolventVault.selector);
+        vault.deposit(ONE_USDC);
+    }
+
+    function test_WorthlessSharesCanBeBurned() public {
+        uint256 shares = _deposit(alice, 10 * ONE_USDC);
+        usdc.burn(address(vault), 10 * ONE_USDC);
+        vm.prank(alice);
+        assertEq(vault.withdraw(shares), 0);
+        assertEq(vault.totalSupply(), 0);
+    }
+
+    function test_DirectDonationImmediatelyChangesAssets() public {
+        _deposit(alice, ONE_USDC);
+        usdc.mint(address(vault), ONE_USDC);
+        assertEq(vault.totalAssets(), 2 * ONE_USDC);
     }
 }

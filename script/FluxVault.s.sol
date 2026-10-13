@@ -14,7 +14,9 @@ import {FluxVault} from "../src/FluxVault.sol";
 ///            --rpc-url monad_testnet --broadcast
 contract FluxVaultScript is Script {
     function run() external returns (FluxVault vault) {
+        require(block.chainid == 10143, "FluxVaultScript: Monad testnet only");
         address usdc = vm.envAddress("USDC_ADDRESS");
+        require(usdc.code.length > 0, "FluxVaultScript: USDC address has no code");
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
 
         vm.startBroadcast(deployerKey);
@@ -23,6 +25,5 @@ contract FluxVaultScript is Script {
 
         console.log("FluxVault deployed at:", address(vault));
         console.log("Underlying USDC:       ", usdc);
-        console.log("Owner:                 ", vault.owner());
     }
 }
