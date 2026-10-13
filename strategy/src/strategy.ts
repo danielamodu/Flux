@@ -17,6 +17,8 @@ export interface MarketMakerConfig {
   cycleIntervalMs?: number;
   /** Sell venue inventory and return it to the vault when stop() is called. */
   unwindOnStop?: boolean;
+  /** Maximum notional for a single resting side as a fraction of vault NAV. */
+  maxOrderNotionalFraction?: number;
 }
 
 /** Lifecycle of the vault's deployed capital. Withdrawals are only safe in AVAILABLE. */
@@ -33,7 +35,7 @@ export class MarketMaker {
   readonly MAX_INVENTORY_SKEW = 0.3;
   /** Fallback minimum notional for venues that do not expose an on-chain size minimum. */
   readonly MIN_ORDER_NOTIONAL_USD = 5;
-  /** Never let a single resting side exceed this share of vault NAV. */
+  /** Default single-side exposure cap; the testnet runner can override this. */
   readonly MAX_ORDER_NOTIONAL_FRACTION = 0.05;
   /** Keep normal quotes small relative to total vault NAV. */
   readonly ORDER_NOTIONAL_FRACTION = 0.015;
@@ -42,6 +44,7 @@ export class MarketMaker {
 
   private readonly cycleIntervalMs: number;
   private readonly unwindOnStop: boolean;
+  private readonly maxOrderNotionalFraction: number;
   private timer: ReturnType<typeof setInterval> | undefined;
   private cycleInFlight: Promise<void> | undefined;
   private running = false;
@@ -58,6 +61,10 @@ export class MarketMaker {
   ) {
     this.cycleIntervalMs = config.cycleIntervalMs ?? 8000;
     this.unwindOnStop = config.unwindOnStop ?? false;
+    this.maxOrderNotionalFraction = config.maxOrderNotionalFraction ?? this.MAX_ORDER_NOTIONAL_FRACTION;
+    if (!Number.isFinite(this.maxOrderNotionalFraction) || this.maxOrderNotionalFraction <= 0 || this.maxOrderNotionalFraction > 1) {
+      throw new Error('maxOrderNotionalFraction must be greater than 0 and at most 1');
+    }
   }
 
   /**
@@ -240,8 +247,8 @@ export class MarketMaker {
     // Cushion the protocol minimum for mid-price movement between this read and placement.
     minimumNotionalUsd *= 1.1;
     const notionalUsd = Math.max(deployedUsd * this.ORDER_NOTIONAL_FRACTION, minimumNotionalUsd);
-    if (notionalUsd > deployedUsd * this.MAX_ORDER_NOTIONAL_FRACTION) {
-      this.log(`venue minimum order ($${notionalUsd.toFixed(2)}) exceeds ${(this.MAX_ORDER_NOTIONAL_FRACTION * 100).toFixed(0)}% of vault NAV; no orders placed`);
+    if (notionalUsd > deployedUsd * this.maxOrderNotionalFraction) {
+      this.log(`venue minimum order ($${notionalUsd.toFixed(2)}) exceeds ${(this.maxOrderNotionalFraction * 100).toFixed(0)}% of vault NAV; no orders placed`);
       return 0;
     }
     return mid > 0 ? notionalUsd / mid : 0;

@@ -31,7 +31,11 @@ async function main(): Promise<void> {
     marketAddress,
     orderScanStartBlock,
   });
-  const marketMaker = new MarketMaker([kuru], vault, { unwindOnStop: true });
+  const maxOrderNotionalFraction = Number(process.env.FLUX_MAX_ORDER_NOTIONAL_FRACTION ?? '0.5');
+  const marketMaker = new MarketMaker([kuru], vault, {
+    unwindOnStop: true,
+    maxOrderNotionalFraction,
+  });
   await marketMaker.start();
   console.log('Flux Kuru keeper is running. Press Ctrl+C to stop quoting.');
 
