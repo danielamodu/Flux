@@ -1,20 +1,20 @@
 # Flux
 
-**A Monad vault prototype with on-chain share accounting.** Deposits are enabled on the redeployed custody-based vault; venue strategies remain paused pending custody-integrated execution.
+**Flux is building vault-controlled market making across Monad.** The Kuru strategy is deployed to Monad testnet, but the funded trading cycle is not yet verified and app deposits remain paused.
 
 ---
 
 ## What is Flux?
 
-Flux is a Monad testnet prototype. The updated `FluxVault.sol` issues transferable **FLUX-LP** shares against USDC held by the vault. External venue balances and unrealized PnL do not count toward NAV; strategy proceeds count only after USDC is settled back to the vault. The legacy deployment remains available for existing holders, while the frontend points to the new custody-based deployment.
+Flux is a Monad testnet prototype for earning from activity on trading venues, rather than lending yield. The new `FluxStrategyVault.sol` issues transferable **FLUX-LP** shares against idle quote assets plus fresh NAV reported by registered strategies. Deposits remain paused in the frontend until Kuru allocation, trading, unwind, and withdrawal have been exercised end to end.
 
 ## The problem it solves
 
-Automated market making adds inventory, adverse-selection, and operational risks. Flux does not currently run depositor capital on venues or claim strategy yield. Those capabilities require contract-controlled funding, verifiable valuation, and a tested unwind path.
+Automated market making adds inventory, adverse-selection, and operational risks. Flux currently has no allocated capital and has not demonstrated trading revenue. The Kuru strategy is the first deployed venue integration; all reported revenue remains zero until a full testnet cycle is reconciled.
 
 ## How it works
 
-`FluxVault.sol` derives NAV from the actual USDC balance. Deposits mint shares proportionally to that balance; withdrawals burn shares and transfer only available USDC. A pre-seeded balance is assigned to permanently locked shares so the first depositor cannot capture it. The strategy runner is paused: current Perpl and Kuru adapters use separately funded accounts and cannot safely control or redeem assets for this vault. The updated source has no owner-settable NAV function.
+`FluxStrategyVault.sol` combines idle quote-token balance with fresh NAV reported by each registered adapter. It bounds strategy capital, restricts execution to an owner/keeper, and exposes pause and emergency-exit controls. `KuruMarginStrategy.sol` routes orders through a Flux-controlled Kuru MarginAccount and bounds order prices against Stork feeds. These contracts are testnet prototypes, not independently audited; their NAV and unwind behavior still need a funded end-to-end exercise.
 
 <!-- __APPEND_MARKER__ -->
 
@@ -23,25 +23,29 @@ Automated market making adds inventory, adverse-selection, and operational risks
 | | |
 |---|---|
 | **Network** | Monad testnet (chain ID `10143`) |
+| **FluxStrategyVault (Kuru)** | [`0x094e9F951533b848EF8A5D304368E3991f318f6B`](https://testnet.monadexplorer.com/address/0x094e9F951533b848EF8A5D304368E3991f318f6B) |
+| **KuruMarginStrategy** | [`0x0bF17399702a7d41d9FB2913df28c534c1C2c7D7`](https://testnet.monadexplorer.com/address/0x0bF17399702a7d41d9FB2913df28c534c1C2c7D7) |
+| **Kuru MON/USDC market** | [`0xa241896A7Dbe8a550D2E5fF7A914bB1989ceD2D9`](https://testnet.monadexplorer.com/address/0xa241896A7Dbe8a550D2E5fF7A914bB1989ceD2D9) |
+| **Kuru quote token** | [`0x3bA3d39AFcf8bb994f7964B3e0171Ea2Ba361570`](https://testnet.monadexplorer.com/address/0x3bA3d39AFcf8bb994f7964B3e0171Ea2Ba361570) |
 | **FluxVault (custody-based)** | [`0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879`](https://testnet.monadexplorer.com/address/0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879) |
 | **FluxVault (legacy)** | [`0x87D7e8ADc960B554483d4CEed5305B15b1D3B600`](https://testnet.monadexplorer.com/address/0x87D7e8ADc960B554483d4CEed5305B15b1D3B600) |
 | **USDC (mock "Test USD", mintable)** | [`0xdf5b718d8fcc173335185a2a1513ee8151e3c027`](https://testnet.monadexplorer.com/address/0xdf5b718d8fcc173335185a2a1513ee8151e3c027) |
-| **Deployment status** | Custody-based source deployed; new deposits use this address. The legacy contract has owner-set NAV and must not receive deposits. |
+| **Deployment status** | Kuru strategy is registered and enabled; strategy vault is empty. No funds allocated, orders placed, or revenue proven. App deposits remain paused until the full cycle is verified. |
 | **Share token** | FLUX-LP (6 decimals, transferable, priced at NAV) |
 | **Explorer** | https://testnet.monadexplorer.com |
 
 ## Hackathon tracks
 
-- Track 1 and Track 2 positioning is prototype work only; Flux currently does not provide automated yield or accept new deposits through its frontend.
+- Flux is a testnet prototype. It does not currently provide earnings or accept deposits through the strategy-vault frontend.
 
 ## Sponsor bounties targeted
 
-- Perpl and Kuru adapters are experimental integrations. They are not enabled in the vault runner and do not contribute to vault NAV.
+- Kuru is deployed and registered, but has not completed a funded trading and unwind cycle. Perpl remains a separate experimental adapter and is not connected to the strategy vault.
 
 ## Tech stack
 
 - **Contracts** — Solidity `^0.8.20`, OpenZeppelin (ERC20 / ReentrancyGuard / SafeERC20 / Math), Foundry (forge/cast) for build, test and deploy.
-- **Strategy engine** — TypeScript adapters for Perpl and Kuru; runner exits safely until custody-compatible funding, valuation, and unwind are implemented.
+- **Strategy engine** — TypeScript Kuru keeper routes order actions through the vault and adapter; it is not running and the vault has no allocated capital. Perpl remains a separate experimental adapter.
 - **Frontend** — Next.js 14 (App Router) + React 18 + TypeScript, wagmi v2 / viem v2, RainbowKit, Tailwind CSS v3 with a token-driven design system, framer-motion.
 
 <!-- __APPEND_MARKER_2__ -->
@@ -50,8 +54,10 @@ Automated market making adds inventory, adverse-selection, and operational risks
 
 ```
 Flux/
-├── src/FluxVault.sol         # the vault contract
-├── script/FluxVault.s.sol    # Foundry deploy script
+├── src/FluxVault.sol         # cash-only vault
+├── src/FluxStrategyVault.sol # strategy-aware share vault
+├── src/venues/               # venue strategy contracts
+├── script/DeployFluxKuru.s.sol # Kuru testnet deployment
 ├── test/FluxVault.t.sol      # Foundry tests
 ├── strategy/                 # TypeScript market-making engine
 │   └── src/                  # index, strategy, perpl, kuru, vault
@@ -72,7 +78,7 @@ forge test
 ```bash
 cd strategy
 npm install
-cp .env.example .env   # strategy exits safely until custody integration is complete
+cp .env.example .env   # keep this local; it may contain the keeper key
 npm run build
 npm start
 ```
@@ -82,7 +88,7 @@ npm start
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # optional: NEXT_PUBLIC_WC_PROJECT_ID, NEXT_PUBLIC_MONAD_RPC, NEXT_PUBLIC_VAULT_ADDRESS
+cp .env.example .env.local   # optional: NEXT_PUBLIC_WC_PROJECT_ID, NEXT_PUBLIC_MONAD_RPC, NEXT_PUBLIC_VAULT_ADDRESS, NEXT_PUBLIC_VAULT_ASSET_ADDRESS
 npm run dev                  # http://localhost:3000
 ```
 
@@ -93,11 +99,11 @@ Injected wallets (MetaMask, Rabby) work out of the box; the WalletConnect QR / m
 ## Demo script — the full lifecycle (deposit → withdrawal)
 
 1. **Connect.** Open the app, connect a wallet with RainbowKit, and switch to Monad testnet (chain ID `10143`).
-2. **Inspect the vault.** Dashboard data reads the custody-based deployment. `totalAssets` counts only USDC held by the vault; venue positions and strategy yield are not included.
-3. **Deposit.** Approve the displayed USDC token and deposit into the new vault. Shares are issued against its on-chain USDC balance.
-4. **Withdraw.** Redeem shares for available USDC held by the vault. Strategy funds are not included because venue execution is paused.
-5. **Legacy shares.** Existing holders can set `NEXT_PUBLIC_VAULT_ADDRESS` to the legacy address to use its withdrawal flow; deposits stay disabled for that address. Verify the on-chain quote and available USDC before withdrawing.
+2. **Inspect the vault.** The default dashboard reads `FluxStrategyVault.totalAssets()`, including any fresh NAV reported by registered strategies.
+3. **Deposit.** Disabled in the frontend until the Kuru flow completes a funded testnet cycle.
+4. **Strategy verification.** Use a small owner-approved test amount to allocate to Kuru, place and cancel orders, unwind, withdraw, and reconcile balances and NAV.
+5. **Older vaults.** Set `NEXT_PUBLIC_VAULT_ADDRESS` and `NEXT_PUBLIC_VAULT_ASSET_ADDRESS` together to inspect an older deployment. Verify both addresses before using its withdrawal flow.
 
 ---
 
-*Testnet only. Not investment advice. Deposits are enabled on the custody-based vault; the strategy runner remains paused.*
+*Testnet only. Not investment advice. No capital has been allocated and Flux has not demonstrated strategy revenue.*
