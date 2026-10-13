@@ -31,6 +31,8 @@ export interface VenueAdapter {
   getMidPrice(): Promise<number>;
   placeOrders(bid: Order, ask: Order): Promise<void>;
   cancelAllOrders(): Promise<void>;
+  /** Optionally unwind venue-held inventory back to the vault during shutdown. */
+  unwind?(): Promise<void>;
   getFills(): Promise<Fill[]>;
   onFill(callback: (fill: Fill) => void): void;
   /** Optional live base inventory in human-readable base-token units. */

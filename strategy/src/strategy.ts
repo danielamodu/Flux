@@ -15,6 +15,8 @@ function errMsg(e: unknown): string {
 
 export interface MarketMakerConfig {
   cycleIntervalMs?: number;
+  /** Sell venue inventory and return it to the vault when stop() is called. */
+  unwindOnStop?: boolean;
 }
 
 /** Lifecycle of the vault's deployed capital. Withdrawals are only safe in AVAILABLE. */
@@ -37,6 +39,7 @@ export class MarketMaker {
   readonly REQUOTE_MOVE_THRESHOLD = 0.001;
 
   private readonly cycleIntervalMs: number;
+  private readonly unwindOnStop: boolean;
   private timer: ReturnType<typeof setInterval> | undefined;
   private cycleInFlight: Promise<void> | undefined;
   private running = false;
@@ -52,6 +55,7 @@ export class MarketMaker {
     config: MarketMakerConfig = {},
   ) {
     this.cycleIntervalMs = config.cycleIntervalMs ?? 8000;
+    this.unwindOnStop = config.unwindOnStop ?? false;
   }
 
   /**
@@ -104,7 +108,7 @@ export class MarketMaker {
     });
   }
 
-  /** Cancel every resting order on every venue and mark capital withdrawable. */
+  /** Cancel every resting order and, when configured, return venue inventory. */
   async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
@@ -117,6 +121,13 @@ export class MarketMaker {
       // Wait for a placement already in progress, then cancel its resulting orders.
       await this.cycleInFlight;
       await Promise.all(this.connected.map((v) => v.cancelAllOrders()));
+      if (this.unwindOnStop) {
+        const unsupported = this.connected.filter((venue) => !venue.unwind);
+        if (unsupported.length !== 0) {
+          throw new Error(`shutdown unwind unsupported by: ${unsupported.map((venue) => venue.name).join(', ')}`);
+        }
+        await Promise.all(this.connected.map((venue) => venue.unwind!()));
+      }
     } catch (err) {
       this.log(`unwind failed — staying UNWINDING (withdrawal blocked): ${errMsg(err)}`);
       throw err;
