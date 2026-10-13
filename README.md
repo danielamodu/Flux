@@ -16,6 +16,8 @@ Automated market making adds inventory, adverse-selection, and operational risks
 
 `FluxStrategyVault.sol` combines idle quote-token balance with fresh NAV reported by each registered adapter. It bounds strategy capital, restricts execution to an owner/keeper, and exposes pause and emergency-exit controls. `KuruMarginStrategy.sol` routes orders through a Flux-controlled Kuru MarginAccount and bounds order prices against Stork feeds. These contracts are testnet prototypes, not independently audited; their NAV and unwind behavior still need a funded end-to-end exercise.
 
+When the Kuru book has no two-sided mid-price, the keeper can bootstrap its first quotes from the strategy's Stork MON/USD and USDC/USD feeds. It rejects future or stale feed values, and the on-chain strategy still applies its own oracle age and price-deviation checks to every order.
+
 <!-- __APPEND_MARKER__ -->
 
 ## Live deployment
