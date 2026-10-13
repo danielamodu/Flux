@@ -27,6 +27,13 @@ const VAULT_ABI = [
 const STRATEGY_ABI = [
   'function baseInventory() view returns (uint256)',
   'function quoteInventory() view returns (uint256)',
+  'function stork() view returns (address)',
+  'function baseUsdFeedId() view returns (bytes32)',
+  'function quoteUsdFeedId() view returns (bytes32)',
+  'function maxOracleAge() view returns (uint64)',
+];
+const STORK_ABI = [
+  'function getTemporalNumericValueV1(bytes32 id) view returns ((uint64 timestampNs,int192 quantizedValue) value)',
 ];
 
 const ORDERBOOK_EVENTS_ABI = [
@@ -53,6 +60,7 @@ export class KuruVaultAdapter implements VenueAdapter {
   private market: ethersV5.Contract | undefined;
   private openOrderIds: ethersV5.BigNumber[] = [];
   private signerIsOwner = false;
+  private loggedOracleFallback = false;
   private readonly fillBuffer: Fill[] = [];
   private readonly fillListeners = new Set<(fill: Fill) => void>();
   private tradeListener: ((...args: any[]) => void) | undefined;
@@ -114,9 +122,50 @@ export class KuruVaultAdapter implements VenueAdapter {
     const params = await this.marketParams();
     const book = await KuruSdk.OrderBook.getL2OrderBook(this.provider, this.config.marketAddress, params);
     if (book.bids.length === 0 || book.asks.length === 0) {
-      throw new Error(`Kuru: empty order book for ${this.config.marketAddress}`);
+      const price = await this.getOracleMidPrice();
+      if (!this.loggedOracleFallback) {
+        console.log(`[KuruVaultAdapter] Kuru book lacks a two-sided price; bootstrapping quotes from fresh Stork MON/USDC: ${price}`);
+        this.loggedOracleFallback = true;
+      }
+      return price;
     }
+    this.loggedOracleFallback = false;
     return (book.bids[0][0] + book.asks[0][0]) / 2;
+  }
+
+  /** Oracle fallback lets the strategy seed an empty book without trusting stale book data. */
+  private async getOracleMidPrice(): Promise<number> {
+    const [storkAddress, baseFeedId, quoteFeedId, maxAgeRaw] = await Promise.all([
+      this.strategy.stork() as Promise<string>,
+      this.strategy.baseUsdFeedId() as Promise<string>,
+      this.strategy.quoteUsdFeedId() as Promise<string>,
+      this.strategy.maxOracleAge() as Promise<ethersV5.BigNumber>,
+    ]);
+    const stork = new ethersV5.Contract(storkAddress, STORK_ABI, this.provider);
+    const [base, quote, block] = await Promise.all([
+      stork.getTemporalNumericValueV1(baseFeedId),
+      stork.getTemporalNumericValueV1(quoteFeedId),
+      this.provider.getBlock('latest'),
+    ]);
+    if (!block) throw new Error('Kuru oracle fallback: latest block unavailable');
+
+    const baseTimestamp = ethersV5.BigNumber.from(base.timestampNs).div(1_000_000_000);
+    const quoteTimestamp = ethersV5.BigNumber.from(quote.timestampNs).div(1_000_000_000);
+    const now = ethersV5.BigNumber.from(block.timestamp);
+    if (baseTimestamp.gt(now) || quoteTimestamp.gt(now)) {
+      throw new Error('Kuru oracle fallback: Stork feed timestamp is in the future');
+    }
+    const oldestTimestamp = baseTimestamp.lt(quoteTimestamp) ? baseTimestamp : quoteTimestamp;
+    if (now.sub(oldestTimestamp).gt(maxAgeRaw)) {
+      throw new Error(`Kuru oracle fallback: Stork feed is stale (max age ${maxAgeRaw.toString()}s)`);
+    }
+
+    const baseUsd = ethersV5.BigNumber.from(base.quantizedValue);
+    const quoteUsd = ethersV5.BigNumber.from(quote.quantizedValue);
+    if (baseUsd.lte(0) || quoteUsd.lte(0)) throw new Error('Kuru oracle fallback: Stork returned a non-positive price');
+    const price = Number(baseUsd.toString()) / Number(quoteUsd.toString());
+    if (!Number.isFinite(price) || price <= 0) throw new Error(`Kuru oracle fallback: invalid MON/USDC price ${price}`);
+    return price;
   }
 
   async placeOrders(bid: Order, ask: Order): Promise<void> {
