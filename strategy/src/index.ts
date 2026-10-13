@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   const vaultAddress = required('FLUX_STRATEGY_VAULT_ADDRESS');
   const strategyAddress = required('KURU_STRATEGY_ADDRESS');
   const marketAddress = required('KURU_MARKET_ADDRESS');
+  const orderScanStartBlock = Number(required('KURU_ORDER_SCAN_START_BLOCK'));
   const keeperPrivateKey = required('VAULT_OWNER_PRIVATE_KEY');
 
   const vault = new VaultClient({ rpcUrl, vaultAddress });
@@ -28,8 +29,9 @@ async function main(): Promise<void> {
     vaultAddress,
     strategyAddress,
     marketAddress,
+    orderScanStartBlock,
   });
-  const marketMaker = new MarketMaker([kuru], vault);
+  const marketMaker = new MarketMaker([kuru], vault, { unwindOnStop: true });
   await marketMaker.start();
   console.log('Flux Kuru keeper is running. Press Ctrl+C to stop quoting.');
 

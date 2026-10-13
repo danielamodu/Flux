@@ -12,6 +12,8 @@ export interface KuruVaultConfig {
   vaultAddress: string;
   strategyAddress: string;
   marketAddress: string;
+  /** First block containing the strategy deployment; used to recover live order IDs. */
+  orderScanStartBlock: number;
   pair?: string;
 }
 
@@ -20,6 +22,7 @@ const VAULT_ABI = [
   'function keeper() view returns (address)',
   'function strategies(address) view returns (uint128 assetCap, bool enabled, bool registered)',
   'function rebalance(address strategy, bytes data)',
+  'function emergencyExit(address strategy, bytes data)',
 ];
 const STRATEGY_ABI = [
   'function baseInventory() view returns (uint256)',
@@ -28,6 +31,7 @@ const STRATEGY_ABI = [
 
 const ORDERBOOK_EVENTS_ABI = [
   'event OrderCreated(uint40 orderId, address owner, uint96 size, uint32 price, bool isBuy)',
+  'event OrdersCanceled(uint40[] orderIds, address owner)',
   'event Trade(uint40 orderId, address makerAddress, bool isBuy, uint256 price, uint96 updatedSize, address takerAddress, address txOrigin, uint96 filledSize)',
 ];
 
@@ -48,6 +52,7 @@ export class KuruVaultAdapter implements VenueAdapter {
   private params: MarketParams | undefined;
   private market: ethersV5.Contract | undefined;
   private openOrderIds: ethersV5.BigNumber[] = [];
+  private signerIsOwner = false;
   private readonly fillBuffer: Fill[] = [];
   private readonly fillListeners = new Set<(fill: Fill) => void>();
   private tradeListener: ((...args: any[]) => void) | undefined;
@@ -69,6 +74,7 @@ export class KuruVaultAdapter implements VenueAdapter {
       KuruSdk.ParamFetcher.getMarketParams(this.provider, this.config.marketAddress),
     ]);
     const signerAddress = this.signer.address.toLowerCase();
+    this.signerIsOwner = signerAddress === String(owner).toLowerCase();
     if (signerAddress !== String(owner).toLowerCase() && signerAddress !== String(keeper).toLowerCase()) {
       throw new Error('KuruVaultAdapter signer is not the Flux vault owner or keeper');
     }
@@ -76,6 +82,7 @@ export class KuruVaultAdapter implements VenueAdapter {
       throw new Error('KuruMarginStrategy is not registered and enabled in FluxStrategyVault');
     }
     this.params = params;
+    await this.recoverOpenOrderIds();
 
     const market = new ethersV5.Contract(this.config.marketAddress, ORDERBOOK_EVENTS_ABI, this.provider);
     const strategyAddress = this.config.strategyAddress.toLowerCase();
@@ -170,6 +177,25 @@ export class KuruVaultAdapter implements VenueAdapter {
     this.openOrderIds = [];
   }
 
+  async unwind(): Promise<void> {
+    if (!this.signerIsOwner) {
+      throw new Error('Kuru emergency unwind requires the Flux vault owner signer; keeper-only signer cannot call owner-only emergencyExit');
+    }
+    const ids = this.openOrderIds.map((id) => id.toString());
+    const payload = ethersV5.utils.defaultAbiCoder.encode(['uint40[]'], [ids]);
+    const tx = await this.vault.emergencyExit(this.config.strategyAddress, payload);
+    await tx.wait();
+    this.openOrderIds = [];
+
+    const [base, quote] = await Promise.all([
+      this.strategy.baseInventory() as Promise<ethersV5.BigNumber>,
+      this.strategy.quoteInventory() as Promise<ethersV5.BigNumber>,
+    ]);
+    if (!base.isZero() || !quote.isZero()) {
+      throw new Error(`Kuru emergency exit incomplete: baseInventory=${base.toString()} quoteInventory=${quote.toString()}`);
+    }
+  }
+
   async getFills(): Promise<Fill[]> {
     return [...this.fillBuffer];
   }
@@ -213,6 +239,52 @@ export class KuruVaultAdapter implements VenueAdapter {
       }
     }
     return ids;
+  }
+
+  /** Rebuild the strategy's live Kuru order set so shutdown also works after restart. */
+  private async recoverOpenOrderIds(): Promise<void> {
+    const startBlock = this.config.orderScanStartBlock;
+    if (!Number.isSafeInteger(startBlock) || startBlock < 0) {
+      throw new Error(`invalid KURU_ORDER_SCAN_START_BLOCK: ${startBlock}`);
+    }
+    const latest = await this.provider.getBlockNumber();
+    if (startBlock > latest) throw new Error(`KURU_ORDER_SCAN_START_BLOCK ${startBlock} is ahead of latest block ${latest}`);
+
+    const iface = new ethersV5.utils.Interface(ORDERBOOK_EVENTS_ABI);
+    const topics = ['OrderCreated', 'OrdersCanceled', 'Trade'].map((name) => iface.getEventTopic(name));
+    const strategy = this.config.strategyAddress.toLowerCase();
+    const live = new Map<string, ethersV5.BigNumber>();
+    const chunkSize = 10_000;
+    for (let fromBlock = startBlock; fromBlock <= latest; fromBlock += chunkSize) {
+      const toBlock = Math.min(fromBlock + chunkSize - 1, latest);
+      const logs = await this.provider.getLogs({
+        address: this.config.marketAddress,
+        fromBlock,
+        toBlock,
+        topics: [topics],
+      });
+      logs.sort((a, b) => a.blockNumber - b.blockNumber || a.transactionIndex - b.transactionIndex || a.logIndex - b.logIndex);
+      for (const log of logs) {
+        let parsed: ethersV5.utils.LogDescription;
+        try {
+          parsed = iface.parseLog(log);
+        } catch {
+          continue;
+        }
+        if (parsed.name === 'OrderCreated' && String(parsed.args.owner).toLowerCase() === strategy) {
+          const id = ethersV5.BigNumber.from(parsed.args.orderId);
+          live.set(id.toString(), id);
+        } else if (parsed.name === 'OrdersCanceled' && String(parsed.args.owner).toLowerCase() === strategy) {
+          for (const id of parsed.args.orderIds as ethersV5.BigNumber[]) live.delete(id.toString());
+        } else if (parsed.name === 'Trade' && String(parsed.args.makerAddress).toLowerCase() === strategy) {
+          if (ethersV5.BigNumber.from(parsed.args.updatedSize).isZero()) {
+            live.delete(String(parsed.args.orderId));
+          }
+        }
+      }
+    }
+    this.openOrderIds = [...live.values()];
+    console.log(`[KuruVaultAdapter] recovered ${this.openOrderIds.length} live order(s) from block ${startBlock}`);
   }
 
   private emitFill(takerIsBuy: boolean, priceRaw: ethersV5.BigNumber, sizeRaw: ethersV5.BigNumber): void {
