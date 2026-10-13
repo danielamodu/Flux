@@ -27,14 +27,14 @@ Quote sizing reads Kuru's live minimum order size and adds a 10% price cushion. 
 | | |
 |---|---|
 | **Network** | Monad testnet (chain ID `10143`) |
-| **FluxStrategyVault (Kuru)** | [`0x094e9F951533b848EF8A5D304368E3991f318f6B`](https://testnet.monadexplorer.com/address/0x094e9F951533b848EF8A5D304368E3991f318f6B) |
-| **KuruMarginStrategy** | [`0x0bF17399702a7d41d9FB2913df28c534c1C2c7D7`](https://testnet.monadexplorer.com/address/0x0bF17399702a7d41d9FB2913df28c534c1C2c7D7) |
-| **Kuru MON/USDC market** | [`0xa241896A7Dbe8a550D2E5fF7A914bB1989ceD2D9`](https://testnet.monadexplorer.com/address/0xa241896A7Dbe8a550D2E5fF7A914bB1989ceD2D9) |
-| **Kuru quote token** | [`0x3bA3d39AFcf8bb994f7964B3e0171Ea2Ba361570`](https://testnet.monadexplorer.com/address/0x3bA3d39AFcf8bb994f7964B3e0171Ea2Ba361570) |
+| **FluxStrategyVault (Circle USDC)** | [`0x67f5787E44A42BBb12fdA9A3a9142Bd6cEEffb42`](https://testnet.monadexplorer.com/address/0x67f5787E44A42BBb12fdA9A3a9142Bd6cEEffb42) |
+| **KuruMarginStrategy** | [`0x1AC5d862e48001b139070F9A64F9dd164B6A6d1B`](https://testnet.monadexplorer.com/address/0x1AC5d862e48001b139070F9A64F9dd164B6A6d1B) |
+| **Kuru MON/Circle-USDC market** | [`0x9aaf57ae35Be175afB906dc4290FD5a1F6eA7897`](https://testnet.monadexplorer.com/address/0x9aaf57ae35Be175afB906dc4290FD5a1F6eA7897) |
+| **Vault asset and Kuru quote token (Circle testnet USDC)** | [`0x534b2f3A21130d7a60830c2Df862319e593943A3`](https://testnet.monadexplorer.com/address/0x534b2f3A21130d7a60830c2Df862319e593943A3) |
 | **FluxVault (custody-based)** | [`0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879`](https://testnet.monadexplorer.com/address/0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879) |
 | **FluxVault (legacy)** | [`0x87D7e8ADc960B554483d4CEed5305B15b1D3B600`](https://testnet.monadexplorer.com/address/0x87D7e8ADc960B554483d4CEed5305B15b1D3B600) |
 | **USDC (mock "Test USD", mintable)** | [`0xdf5b718d8fcc173335185a2a1513ee8151e3c027`](https://testnet.monadexplorer.com/address/0xdf5b718d8fcc173335185a2a1513ee8151e3c027) |
-| **Deployment status** | Kuru strategy is registered and enabled; strategy vault is empty. No funds allocated, orders placed, or revenue proven. App deposits remain paused until the full cycle is verified. |
+| **Deployment status** | Circle-USDC Kuru market and strategy vault are deployed; strategy is registered. The market is empty, no funds are allocated, and no revenue is proven. App deposits remain paused until a funded trade, unwind, and withdrawal are verified. |
 | **Share token** | FLUX-LP (6 decimals, transferable, priced at NAV) |
 | **Explorer** | https://testnet.monadexplorer.com |
 
