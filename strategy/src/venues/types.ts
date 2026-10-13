@@ -35,6 +35,8 @@ export interface VenueAdapter {
   unwind?(): Promise<void>;
   getFills(): Promise<Fill[]>;
   onFill(callback: (fill: Fill) => void): void;
+  /** Optional venue minimum in human-readable base-token units. */
+  getMinimumOrderSize?(): Promise<number>;
   /** Optional live base inventory in human-readable base-token units. */
   getBaseInventory?(): Promise<number>;
 }

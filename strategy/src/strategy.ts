@@ -31,9 +31,11 @@ export class MarketMaker {
   readonly SPREAD = 0.0005;
   /** Max |inventory| as a fraction of deployed capital before we stop quoting. */
   readonly MAX_INVENTORY_SKEW = 0.3;
-  /** Minimum notional per order (USD); Kuru rejects sizes below its market minimum. */
-  readonly MIN_ORDER_NOTIONAL_USD = 15;
-  /** At the current $1,000 strategy cap this yields the $15 minimum order. */
+  /** Fallback minimum notional for venues that do not expose an on-chain size minimum. */
+  readonly MIN_ORDER_NOTIONAL_USD = 5;
+  /** Never let a single resting side exceed this share of vault NAV. */
+  readonly MAX_ORDER_NOTIONAL_FRACTION = 0.05;
+  /** Keep normal quotes small relative to total vault NAV. */
   readonly ORDER_NOTIONAL_FRACTION = 0.015;
   /** Skip the cancel/requote cycle unless the mid moved at least this fraction. */
   readonly REQUOTE_MOVE_THRESHOLD = 0.001;
@@ -224,11 +226,24 @@ export class MarketMaker {
     return Math.abs(inventory * mid) / deployedUsd;
   }
 
-  /** Per-order base size from NAV; skip if the configured share is below the venue minimum. */
+  /** Size from NAV and the live venue minimum, while bounding each order against NAV. */
   private async orderSize(mid: number): Promise<number> {
     const deployedUsd = Number(await this.vault.getTotalAssets()) / 1e6;
-    const notionalUsd = deployedUsd * this.ORDER_NOTIONAL_FRACTION;
-    if (notionalUsd < this.MIN_ORDER_NOTIONAL_USD) return 0;
+    let minimumNotionalUsd = this.MIN_ORDER_NOTIONAL_USD;
+    for (const venue of this.connected) {
+      if (!venue.getMinimumOrderSize) continue;
+      const minimumBaseSize = await venue.getMinimumOrderSize();
+      if (Number.isFinite(minimumBaseSize) && minimumBaseSize > 0) {
+        minimumNotionalUsd = Math.max(minimumNotionalUsd, minimumBaseSize * mid);
+      }
+    }
+    // Cushion the protocol minimum for mid-price movement between this read and placement.
+    minimumNotionalUsd *= 1.1;
+    const notionalUsd = Math.max(deployedUsd * this.ORDER_NOTIONAL_FRACTION, minimumNotionalUsd);
+    if (notionalUsd > deployedUsd * this.MAX_ORDER_NOTIONAL_FRACTION) {
+      this.log(`venue minimum order ($${notionalUsd.toFixed(2)}) exceeds ${(this.MAX_ORDER_NOTIONAL_FRACTION * 100).toFixed(0)}% of vault NAV; no orders placed`);
+      return 0;
+    }
     return mid > 0 ? notionalUsd / mid : 0;
   }
 

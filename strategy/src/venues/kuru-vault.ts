@@ -218,6 +218,11 @@ export class KuruVaultAdapter implements VenueAdapter {
     return Number(ethersV5.utils.formatUnits(raw, params.baseAssetDecimals));
   }
 
+  async getMinimumOrderSize(): Promise<number> {
+    const params = await this.marketParams();
+    return Number(params.minSize.toString()) / Number(params.sizePrecision.toString());
+  }
+
   async cancelAllOrders(): Promise<void> {
     if (this.openOrderIds.length === 0) return;
     const encoded = this.encodeRebalance([], [], [], [], this.openOrderIds.map((id) => id.toString()));
