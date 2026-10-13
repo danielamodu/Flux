@@ -1,11 +1,9 @@
-// vault.ts — FluxVault contract client (ethers v6, testnet only).
-//
-// Read-only client for the vault. It deliberately has no NAV-write interface:
-// FluxVault NAV is the actual USDC balance held by the contract.
+// vault.ts — Flux strategy vault read client (ethers v6, testnet only).
 import { ethers } from 'ethers';
 
 const VAULT_ABI = [
   'function totalAssets() view returns (uint256)',
+  'function asset() view returns (address)',
   'function usdc() view returns (address)',
 ] as const;
 
@@ -31,12 +29,12 @@ export class VaultClient {
     this.vault = new ethers.Contract(config.vaultAddress, VAULT_ABI, this.provider);
   }
 
-  /** Current redeemable USDC held by the vault (base units). */
+  /** Current portfolio NAV returned by the vault (base units). */
   async getTotalAssets(): Promise<bigint> {
     return (await this.vault.totalAssets()) as bigint;
   }
 
-  /** USDC currently held by the vault, available to deploy (6 decimals). */
+  /** Quote token currently held idle by the vault (base units). */
   async getAvailableLiquidity(): Promise<bigint> {
     const usdc = await this.usdc();
     return (await usdc.balanceOf(this.vaultAddress)) as bigint;
@@ -44,7 +42,13 @@ export class VaultClient {
 
   private async usdc(): Promise<ethers.Contract> {
     if (this.usdcContract) return this.usdcContract;
-    const tokenAddress = (await this.vault.usdc()) as string;
+    let tokenAddress: string;
+    try {
+      tokenAddress = (await this.vault.asset()) as string;
+    } catch {
+      // Older cash-only FluxVault deployments expose `usdc()` instead.
+      tokenAddress = (await this.vault.usdc()) as string;
+    }
     this.usdcContract = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
     return this.usdcContract;
   }
