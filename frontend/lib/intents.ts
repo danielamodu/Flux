@@ -1,4 +1,4 @@
-// Aurora/NEAR Intents deposit rail (1Click Swap API).
+// Aurora/NEAR Intents deposit rail (Aurora Swap API, same protocol as 1Click).
 //
 // Lets a user fund Flux from any supported chain: they pick an origin asset,
 // we request a quote whose destination is USDC on Monad, they send the origin

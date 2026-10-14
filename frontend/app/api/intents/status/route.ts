@@ -1,6 +1,6 @@
-// Server-side proxy for the Intents swap-status endpoint.
+// Server-side proxy for the Aurora Intents swap-status endpoint.
 const API_BASE =
-  process.env.INTENTS_API_BASE?.trim() || 'https://1click.chaindefuser.com';
+  process.env.INTENTS_API_BASE?.trim() || 'https://intents-api.aurora.dev';
 
 export async function GET(req: Request): Promise<Response> {
   const apiKey = process.env.INTENTS_API_KEY?.trim();
@@ -22,9 +22,9 @@ export async function GET(req: Request): Promise<Response> {
   const memo = url.searchParams.get('depositMemo');
   if (memo) query.set('depositMemo', memo);
 
-  const upstream = await fetch(`${API_BASE}/v0/status?${query.toString()}`, {
-    headers: { 'X-API-Key': apiKey },
-  });
+  const upstream = await fetch(
+    `${API_BASE}/api/status/${apiKey}?${query.toString()}`,
+  );
   const body = await upstream.text();
   return new Response(body, {
     status: upstream.status,

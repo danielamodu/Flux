@@ -1,8 +1,8 @@
-// Server-side proxy for the Intents quote endpoint. Keeps INTENTS_API_KEY
-// off the client and injects Flux's referral + optional app fee (the
-// integrator revenue share) into every quote request.
+// Server-side proxy for the Aurora Intents quote endpoint. Keeps
+// INTENTS_API_KEY off the client and injects Flux's referral + optional app
+// fee (the integrator revenue share) into every quote request.
 const API_BASE =
-  process.env.INTENTS_API_BASE?.trim() || 'https://1click.chaindefuser.com';
+  process.env.INTENTS_API_BASE?.trim() || 'https://intents-api.aurora.dev';
 
 export async function POST(req: Request): Promise<Response> {
   const apiKey = process.env.INTENTS_API_KEY?.trim();
@@ -38,12 +38,10 @@ export async function POST(req: Request): Promise<Response> {
   const feeRecipient = process.env.INTENTS_FEE_RECIPIENT?.trim();
   const feeBps = Number(process.env.INTENTS_FEE_BPS ?? '0');
 
-  const upstream = await fetch(`${API_BASE}/v0/quote`, {
+  // Aurora authenticates via the key in the path, not a header.
+  const upstream = await fetch(`${API_BASE}/api/quote/${apiKey}`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'X-API-Key': apiKey,
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       dry: params.dry ?? true,
       swapType: 'EXACT_INPUT',
