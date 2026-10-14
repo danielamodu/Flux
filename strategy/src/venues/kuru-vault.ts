@@ -179,22 +179,28 @@ export class KuruVaultAdapter implements VenueAdapter {
 
     const bidPrice = ethersV5.utils.parseUnits(bid.price.toFixed(priceDecimals), priceDecimals);
     const bidSize = ethersV5.utils.parseUnits(bid.size.toFixed(sizeDecimals), sizeDecimals);
-    const askPrice = ethersV5.utils.parseUnits(ask.price.toFixed(priceDecimals), priceDecimals);
+    let askPrice = ethersV5.utils.parseUnits(ask.price.toFixed(priceDecimals), priceDecimals);
     const askSize = ethersV5.utils.parseUnits(ask.size.toFixed(sizeDecimals), sizeDecimals);
+    // Kuru books reject prices that are not multiples of tickSize. Align the
+    // bid down and the ask up so the quoted spread never tightens.
+    const tickSize = ethersV5.BigNumber.from(params.tickSize);
+    const alignedBidPrice = bidPrice.div(tickSize).mul(tickSize);
+    const askFloored = askPrice.div(tickSize).mul(tickSize);
+    askPrice = askFloored.lt(askPrice) ? askFloored.add(tickSize) : askFloored;
     const [quoteBalance, baseBalance] = await Promise.all([
       this.strategy.quoteInventory() as Promise<ethersV5.BigNumber>,
       this.strategy.baseInventory() as Promise<ethersV5.BigNumber>,
     ]);
     const quoteNeeded = bidSize
-      .mul(bidPrice)
+      .mul(alignedBidPrice)
       .mul(ethersV5.BigNumber.from(10).pow(params.quoteAssetDecimals))
       .div(params.sizePrecision.mul(params.pricePrecision));
     const baseNeeded = askSize
       .mul(ethersV5.BigNumber.from(10).pow(params.baseAssetDecimals))
       .div(params.sizePrecision);
-    const buyPrices = quoteNeeded.lte(quoteBalance) ? [bidPrice.toString()] : [];
+    const buyPrices = !alignedBidPrice.isZero() && quoteNeeded.lte(quoteBalance) ? [alignedBidPrice.toString()] : [];
     const buySizes = buyPrices.length ? [bidSize.toString()] : [];
-    const sellPrices = baseNeeded.lte(baseBalance) ? [askPrice.toString()] : [];
+    const sellPrices = !askPrice.isZero() && baseNeeded.lte(baseBalance) ? [askPrice.toString()] : [];
     const sellSizes = sellPrices.length ? [askSize.toString()] : [];
     if (buyPrices.length === 0 && sellPrices.length === 0) {
       throw new Error('Kuru strategy has insufficient free quote and base balances for either side');

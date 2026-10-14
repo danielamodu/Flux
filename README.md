@@ -1,6 +1,6 @@
 # Flux
 
-**Flux is building vault-controlled market making across Monad.** The Kuru strategy is deployed to Monad testnet, but the funded trading cycle is not yet verified and app deposits remain paused.
+**Flux is building vault-controlled market making across Monad.** The Kuru strategy is deployed to Monad testnet and a first funded cycle (deposit → allocate → quote → fill → cancel → unwind → withdraw) is verified at tiny size with ~zero PnL. No revenue is proven and app deposits remain paused.
 
 ---
 
@@ -34,9 +34,15 @@ Quote sizing reads Kuru's live minimum order size and adds a 10% price cushion. 
 | **FluxVault (custody-based)** | [`0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879`](https://testnet.monadexplorer.com/address/0x7e974626f6767c3A9ddA8A5b664301CAD5a6B879) |
 | **FluxVault (legacy)** | [`0x87D7e8ADc960B554483d4CEed5305B15b1D3B600`](https://testnet.monadexplorer.com/address/0x87D7e8ADc960B554483d4CEed5305B15b1D3B600) |
 | **USDC (mock "Test USD", mintable)** | [`0xdf5b718d8fcc173335185a2a1513ee8151e3c027`](https://testnet.monadexplorer.com/address/0xdf5b718d8fcc173335185a2a1513ee8151e3c027) |
-| **Deployment status** | Circle-USDC Kuru market and strategy vault are deployed; strategy is registered. The market is empty, no funds are allocated, and no revenue is proven. App deposits remain paused until a funded trade, unwind, and withdrawal are verified. |
+| **Deployment status** | Circle-USDC Kuru market and strategy vault are deployed; strategy is registered. A 12-USDC smoke cycle (quote, 0.1 MON fill, unwind, withdraw) reconciled to −12 units; the book is otherwise empty and no revenue is proven. App deposits remain paused until repeated fills show net revenue. |
 | **Share token** | FLUX-LP (6 decimals, transferable, priced at NAV) |
 | **Explorer** | https://testnet.monadexplorer.com |
+
+## Verified smoke cycle (Monad testnet, Oct 14 2026)
+
+12 Circle testnet USDC in, full USDC-out path exercised: deposit → allocate 6 to `KuruMarginStrategy` → keeper bid 225 MON (order #3, Stork-bootstrapped) → 0.1 MON taker fill at raw price 2440000 → cancel → taker bid-back → `emergencyExit` → withdraw → vault re-paused. Owner ended with 19.999988 of 20 USDC (−6 units maker fee/dust, −0.01 taker top-up, swept back). Key txs: deposit `0xe5754b77…`, allocate `0x59101b80…`, fill `0x86864545…`, daemon quote (block ~70820900), exit `0x6ff235b5…`, withdraw `0xde3d3155…`.
+
+Findings: the keeper's `$5` minimum-notional floor needs vault NAV ≥ ~$11 to quote on this dust-minimum market; `placeOrders` now tick-aligns prices to Kuru's `tickSize` (fix in `strategy/src/venues/kuru-vault.ts` — every unaligned quote reverted on-chain); Kuru locks quote for resting bids, so free margin reads low while quoting and restores on cancel. No spread was captured and no revenue is proven.
 
 ## Hackathon tracks
 
