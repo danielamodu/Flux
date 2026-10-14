@@ -50,7 +50,8 @@ Findings: the keeper's `$5` minimum-notional floor needs vault NAV ≥ ~$11 to q
 
 ## Sponsor bounties targeted
 
-- Kuru is deployed and registered, but has not completed a funded trading and unwind cycle. Perpl remains a separate experimental adapter and is not connected to the strategy vault.
+- Kuru is deployed, registered, and has completed a first funded trade-and-unwind cycle at tiny size, but has not demonstrated net revenue. Perpl remains a separate experimental adapter and is not connected to the strategy vault.
+- Aurora Intents (any-chain deposits): the frontend has a quote → deposit-address → status flow delivering USDC on Monad via the 1Click API (`app/api/intents/*`, `components/IntentsDeposit.tsx`). Needs a server `INTENTS_API_KEY` to go live; Intents serves Monad mainnet, so testnet-vault delivery waits on testnet asset support.
 
 ## Tech stack
 

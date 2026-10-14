@@ -9,13 +9,14 @@ import { formatShares, formatUsd } from '@/lib/format';
 import { useVaultData } from '@/lib/vault-data';
 import { useMounted } from '@/lib/useMounted';
 import { DepositModal } from './DepositModal';
+import { IntentsDeposit } from './IntentsDeposit';
 import { WithdrawModal } from './WithdrawModal';
 
 export function PositionCard() {
   const mounted = useMounted();
   const { address } = useAccount();
   const { totalAssets, totalSupply, refetchTotals } = useVaultData();
-  const [open, setOpen] = useState<null | 'deposit' | 'withdraw'>(null);
+  const [open, setOpen] = useState<null | 'deposit' | 'withdraw' | 'intents'>(null);
 
   const { data: shares, refetch: refetchShares } = useReadContract({
     address: VAULT_ADDRESS,
@@ -76,12 +77,21 @@ export function PositionCard() {
             : DEPOSITS_PAUSE_REASON}
         </p>
       )}
+      <button
+        type="button"
+        className="btn btn-secondary mt-3 w-full"
+        onClick={() => setOpen('intents')}
+        disabled={!address}
+      >
+        Deposit from any chain ↗
+      </button>
 
       <DepositModal
         open={open === 'deposit'}
         onClose={() => setOpen(null)}
         onSuccess={refresh}
       />
+      <IntentsDeposit open={open === 'intents'} onClose={() => setOpen(null)} />
       <WithdrawModal
         open={open === 'withdraw'}
         onClose={() => setOpen(null)}
